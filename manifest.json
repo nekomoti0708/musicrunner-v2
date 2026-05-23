@@ -1,0 +1,20 @@
+{
+  "name": "Music Runner",
+  "short_name": "MusicRunner",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#08050e",
+  "theme_color": "#08050e",
+  "icons": [
+    {
+      "src": "icons/icon_192_1779500783783.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon_512_1779500897773.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
