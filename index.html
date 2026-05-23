@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -10,7 +11,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#08050e">
+    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+    <script>eruda.init();</script>
 </head>
+
 <body>
     <div id="app">
         <!-- 1. HOME画面 -->
@@ -20,8 +24,10 @@
                     <!-- ファイルを開く -->
                     <button id="btn-open-file" class="btn-primary">
                         <svg class="btn-icon" viewBox="0 0 24 24">
-                            <path d="M9 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8l-6-6zm4 2.5L18.5 9H13V4.5zM5 20V4h6v6h6v10H5z" fill="currentColor"/>
-                            <path d="M12 12v6M9 15h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <path
+                                d="M9 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8l-6-6zm4 2.5L18.5 9H13V4.5zM5 20V4h6v6h6v10H5z"
+                                fill="currentColor" />
+                            <path d="M12 12v6M9 15h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                         </svg>
                         <span>ファイルを開く</span>
                     </button>
@@ -30,8 +36,10 @@
                     <!-- フォルダーを開く -->
                     <button id="btn-open-folder" class="btn-primary">
                         <svg class="btn-icon" viewBox="0 0 24 24">
-                            <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z" fill="currentColor"/>
-                            <path d="M12 10v6M9 13h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <path
+                                d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"
+                                fill="currentColor" />
+                            <path d="M12 10v6M9 13h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                         </svg>
                         <span>フォルダーを開く</span>
                     </button>
@@ -40,7 +48,9 @@
                     <!-- 前回のフォルダーを開く -->
                     <button id="btn-open-last-folder" class="btn-primary disabled" disabled>
                         <svg class="btn-icon" viewBox="0 0 24 24">
-                            <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z" fill="currentColor"/>
+                            <path
+                                d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"
+                                fill="currentColor" />
                         </svg>
                         <span>前回のフォルダーを開く</span>
                     </button>
@@ -53,7 +63,7 @@
             <!-- 上部 70%: 再生画面（動画または音楽のサムネイル/ビジュアライザ） -->
             <div id="media-area">
                 <video id="main-video" playsinline></video>
-                
+
                 <!-- 音楽再生時のカバー・プレースホルダー -->
                 <div id="music-placeholder" class="active">
                     <div class="vinyl-container">
@@ -82,7 +92,9 @@
                 <!-- 音量 -->
                 <div class="slider-container volume-container">
                     <svg class="volume-icon" viewBox="0 0 24 24">
-                        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" fill="currentColor"/>
+                        <path
+                            d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+                            fill="currentColor" />
                     </svg>
                     <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.8">
                 </div>
@@ -92,24 +104,25 @@
                     <!-- 繰り返しボタン (Loop) -->
                     <button id="btn-loop" class="control-btn" aria-label="ループ再生">
                         <svg class="icon-loop" viewBox="0 0 24 24">
-                            <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" fill="currentColor"/>
+                            <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"
+                                fill="currentColor" />
                         </svg>
                     </button>
 
                     <!-- 再生・停止 -->
                     <button id="btn-play-pause" class="control-btn play-trigger" aria-label="再生">
                         <svg class="icon-play" viewBox="0 0 24 24">
-                            <path d="M8 5v14l11-7z" fill="currentColor"/>
+                            <path d="M8 5v14l11-7z" fill="currentColor" />
                         </svg>
                         <svg class="icon-pause hidden" viewBox="0 0 24 24">
-                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="currentColor"/>
+                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="currentColor" />
                         </svg>
                     </button>
 
                     <!-- HOME画面に戻る -->
                     <button id="btn-back-home" class="control-btn" aria-label="ホームに戻る">
                         <svg class="icon-home" viewBox="0 0 24 24">
-                            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" fill="currentColor"/>
+                            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" fill="currentColor" />
                         </svg>
                     </button>
                 </div>
@@ -135,4 +148,5 @@
     <!-- アプリケーションのメインロジック -->
     <script src="main.js"></script>
 </body>
+
 </html>
