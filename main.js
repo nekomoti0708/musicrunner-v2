@@ -336,28 +336,51 @@ async function handleOpenFilePicker() {
     }
 
 // --- 前回のフォルダーを開く処理 ---
-// Simplified recent folder opening using cached folder files if available
-    async function handleOpenLastDirectory() {
-        if (cachedFolderFiles) {
-            // Use previously cached files from fallback input
-            setupFolderMode(cachedFolderFiles);
-            return;
+async function handleOpenLastDirectory() {
+    // スマホ / フォールバック: キャッシュされたファイルがあれば再利用
+    if (cachedFolderFiles && cachedFolderFiles.length > 0) {
+        isFolderLoaded = true;
+
+        let folderName = 'Local Folder';
+        if (cachedFolderFiles[0].webkitRelativePath) {
+            folderName = cachedFolderFiles[0].webkitRelativePath.split('/')[0];
         }
-        // Fallback: try to use previously stored handle via IndexedDB (if supported)
-        try {
-            const lastHandle = await getVal(LAST_DIR_KEY);
-            if (lastHandle) {
-                const granted = await verifyPermission(lastHandle, false);
-                if (granted) {
-                    await loadFromHandle(lastHandle);
-                } else {
-                    alert('フォルダーへのアクセス権限が拒否されました。再度選択してください。');
-                }
-            }
-        } catch (err) {
-            console.error('Failed to open last directory:', err);
+
+        const stateKey = `musicrunner_state_${folderName}`;
+        const savedState = localStorage.getItem(stateKey);
+        currentState = savedState
+            ? JSON.parse(savedState)
+            : { openFolders: {}, checkedFiles: {} };
+
+        flatFiles = [];
+        const treeData = buildFallbackTree(cachedFolderFiles, folderName);
+        updatePlaylistQueue();
+        renderFileTree(treeData);
+        showScreen('play');
+
+        if (playlistQueue.length > 0) {
+            playNode(playlistQueue[0]);
+        } else if (flatFiles.length > 0) {
+            playNode(flatFiles[0]);
         }
+        return;
     }
+
+    // デスクトップ: IndexedDB に保存したディレクトリハンドルを使用
+    try {
+        const lastHandle = await getVal(LAST_DIR_KEY);
+        if (lastHandle) {
+            const granted = await verifyPermission(lastHandle, false);
+            if (granted) {
+                await loadDirectory(lastHandle);
+            } else {
+                alert('フォルダーへのアクセス権限が拒否されました。再度選択してください。');
+            }
+        }
+    } catch (err) {
+        console.error('Failed to open last directory:', err);
+    }
+}
 
 async function verifyPermission(fileHandle, readWrite) {
     const options = {};
