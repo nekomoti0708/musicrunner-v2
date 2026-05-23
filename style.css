@@ -1,0 +1,602 @@
+/* -------------------------------------------------------------
+   Music Runner v2.0 - Core Styling (Vanilla CSS)
+   Color Palette: Deep Purple & Chic Dark Gray
+   ------------------------------------------------------------- */
+
+/* リセット & ベース設定 */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+body, html {
+    width: 100%;
+    height: 100dvh;
+    background-color: #08050e;
+    color: #e2e0e7;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    overflow: hidden;
+}
+
+#app {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+/* 画面共通定義 */
+.screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    flex-direction: column;
+    opacity: 0;
+    background-color: #08050e;
+    transition: opacity 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.screen.active {
+    display: flex;
+    opacity: 1;
+    z-index: 10;
+}
+
+/* -------------------------------------------------------------
+   1. HOME画面 スタイル
+   ------------------------------------------------------------- */
+#home-screen {
+    justify-content: center;
+    align-items: center;
+    background-color: #08050e;
+}
+
+.home-container {
+    width: 85%;
+    max-width: 400px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 50px;
+}
+
+.home-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.home-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* ボタン基本スタイル */
+.btn-primary {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 20px;
+    width: 100%;
+    padding: 16px 24px;
+    border: 1px solid #221c32;
+    border-radius: 16px;
+    background-color: #120d1e;
+    color: #e2e0e7;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s, transform 0.1s;
+    font-family: inherit;
+}
+
+.btn-primary:active {
+    background-color: #1a132a;
+    border-color: #362e4f;
+    transform: scale(0.98);
+}
+
+.btn-primary.disabled {
+    opacity: 0.35;
+    pointer-events: none;
+    background-color: #0f0a19;
+}
+
+.btn-icon {
+    width: 24px;
+    height: 24px;
+    color: #a899e6;
+}
+
+/* -------------------------------------------------------------
+   2. PLAY画面 スタイル
+   ------------------------------------------------------------- */
+#play-screen {
+    justify-content: space-between;
+    background-color: #08050e;
+}
+
+/* 上部 70%: メディアエリア */
+#media-area {
+    flex: 7;
+    position: relative;
+    background-color: #020105;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+#main-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background-color: #000;
+}
+
+#music-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #0a0712;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 30px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 2;
+}
+
+#music-placeholder.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* レコード盤アニメーション */
+.vinyl-container {
+    position: relative;
+    width: 200px;
+    height: 200px;
+}
+
+.vinyl {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: repeating-radial-gradient(
+        circle,
+        #120d1e,
+        #120d1e 3px,
+        #09060f 4px,
+        #09060f 5px
+    );
+    border: 8px solid #221c32;
+    position: relative;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: rotate 20s linear infinite;
+    animation-play-state: paused;
+}
+
+.playing .vinyl {
+    animation-play-state: running;
+}
+
+.vinyl-center {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background-color: #a899e6;
+    border: 4px solid #08050e;
+    position: relative;
+}
+
+.vinyl-center::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #08050e;
+}
+
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.music-info {
+    text-align: center;
+    padding: 0 20px;
+    width: 100%;
+}
+
+#current-title {
+    font-size: 1.3rem;
+    font-weight: 500;
+    color: #e2e0e7;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#current-artist {
+    font-size: 0.85rem;
+    color: #8e8a9f;
+}
+
+
+
+/* 下部 30%: コントローラーエリア */
+#controller-area {
+    flex: 3;
+    background-color: #0e0a19;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+    border-top: 1px solid #1c152a;
+    z-index: 3;
+}
+
+/* スライダーコンテナ共通 */
+.slider-container {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+/* プログレススライダー */
+.progress-container {
+    gap: 12px;
+}
+
+.time-label {
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    color: #8e8a9f;
+    min-width: 35px;
+}
+
+#time-current { text-align: left; }
+#time-total { text-align: right; }
+
+/* 音量スライダー */
+.volume-container {
+    gap: 16px;
+    max-width: 280px;
+    margin: 0 auto;
+}
+
+.volume-icon {
+    width: 20px;
+    height: 20px;
+    color: #8e8a9f;
+}
+
+/* レンジスライダーのカスタマイズ */
+input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: #201a2e;
+    border-radius: 2px;
+    outline: none;
+}
+
+/* スライダーノブ - Webkit */
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #a899e6;
+    cursor: pointer;
+    box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    transition: transform 0.1s;
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+    transform: scale(1.3);
+}
+
+/* コントロールボタン群 */
+.control-buttons {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 280px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.control-btn {
+    background: none;
+    border: none;
+    color: #8e8a9f;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    border-radius: 50%;
+    transition: color 0.15s, background-color 0.15s;
+    touch-action: manipulation;
+}
+
+.control-btn:active {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.control-btn svg {
+    width: 26px;
+    height: 26px;
+}
+
+/* 特殊サイズ：再生・停止ボタン */
+#btn-play-pause {
+    color: #e2e0e7;
+    background-color: #261d3a;
+    width: 58px;
+    height: 58px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    transition: transform 0.08s, background-color 0.15s;
+    touch-action: manipulation;
+}
+
+#btn-play-pause:active {
+    background-color: #33264e;
+    transform: scale(0.95);
+}
+
+#btn-play-pause svg {
+    width: 32px;
+    height: 32px;
+}
+
+/* アクティブ状態のボタン */
+.control-btn.active {
+    color: #a899e6;
+    background-color: rgba(168, 153, 230, 0.15);
+    box-shadow: 0 0 10px rgba(168, 153, 230, 0.25);
+}
+
+.control-btn.active svg {
+    filter: drop-shadow(0 0 3px rgba(168, 153, 230, 0.8));
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* -------------------------------------------------------------
+   3. スライドダウン ファイルツリーパネル
+   ------------------------------------------------------------- */
+.file-tree-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 80%;
+    background-color: #0f0a1d;
+    z-index: 100;
+    border-bottom: 2px solid #221a36;
+    border-bottom-left-radius: 24px;
+    border-bottom-right-radius: 24px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+    transform: translateY(-100%);
+    transition: transform 0.35s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.file-tree-panel.open {
+    transform: translateY(0);
+}
+
+.panel-header {
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-top: 1px solid #201736;
+}
+
+.drag-handle {
+    width: 42px;
+    height: 5px;
+    background-color: #3e325c;
+    border-radius: 3px;
+    cursor: grab;
+}
+
+.panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* -------------------------------------------------------------
+   4. ファイルツリーのスタイリング
+   ------------------------------------------------------------- */
+#file-tree-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.empty-tree-message {
+    text-align: center;
+    color: #8e8a9f;
+    font-size: 0.9rem;
+    padding: 40px 20px;
+    line-height: 1.5;
+}
+
+/* 階層グループ */
+.tree-node {
+    display: flex;
+    flex-direction: column;
+}
+
+/* フォルダ・ファイル行の共通デザイン */
+.tree-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+    font-size: 0.95rem;
+    gap: 12px;
+}
+
+.tree-row:active {
+    background-color: rgba(168, 153, 230, 0.08);
+}
+
+/* フォルダ特有 */
+.folder-row {
+    color: #cbbffc;
+    font-weight: 500;
+}
+
+.folder-icon-spin {
+    transition: transform 0.2s ease;
+}
+
+.folder-open .folder-icon-spin {
+    transform: rotate(90deg);
+}
+
+/* ファイル特有 */
+.file-row {
+    color: #e2e0e7;
+}
+
+.file-row.playing-row {
+    background-color: rgba(168, 153, 230, 0.12);
+    color: #a899e6;
+}
+
+/* ネストインデント */
+.tree-children {
+    display: none;
+    padding-left: 20px;
+    border-left: 1px dashed #2d234a;
+    margin-left: 20px;
+}
+
+.folder-open + .tree-children {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+/* テキスト省略 */
+.row-label {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* アイコン */
+.row-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: inherit;
+    flex-shrink: 0;
+}
+
+.row-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 8px;
+    flex-shrink: 0;
+}
+
+.checkbox-container label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.checkbox-custom {
+    position: relative;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #3e325c;
+    border-radius: 6px;
+    background-color: transparent;
+    transition: background-color 0.15s, border-color 0.15s;
+    cursor: pointer;
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
+
+.checkbox-custom::after {
+    content: '';
+    position: absolute;
+    display: none;
+    left: 5px;
+    top: 1px;
+    width: 5px;
+    height: 10px;
+    border: solid #0f0a1d;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.checkbox-input {
+    display: none;
+}
+
+.checkbox-input:checked + .checkbox-custom {
+    background-color: #a899e6;
+    border-color: #a899e6;
+}
+
+.checkbox-input:checked + .checkbox-custom::after {
+    display: block;
+}
+
+/* 横揺れ、ドラッグ操作時の transition 抑制 */
+.no-transition {
+    transition: none !important;
+}
