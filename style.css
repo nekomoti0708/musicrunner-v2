@@ -414,11 +414,13 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 .panel-header {
-    padding: 16px;
+    padding: 20px 16px 24px;
     display: flex;
     justify-content: center;
     align-items: center;
     border-top: 1px solid #201736;
+    /* タッチ判定を大きくするために最低高さを確保 */
+    min-height: 56px;
 }
 
 .drag-handle {

@@ -464,8 +464,11 @@ async function traverseDirectory(dirHandle, relativePath = '') {
             }
         }
     }
-    // アルファベット順でソート
-    items.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    // フォルダー → ファイルの順で、それぞれa-z
+    items.sort((a, b) => {
+        if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
+        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    });
     return items;
 }
 
@@ -840,7 +843,11 @@ function buildFallbackTree(files, rootName) {
             }
             return true;
         });
-        filtered.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+        // フォルダー → ファイルの順で、それぞれa-z
+        filtered.sort((a, b) => {
+            if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
+            return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+        });
         return filtered;
     }
 
@@ -856,10 +863,11 @@ let panelHeight = 0;
 function initSwipeGestures() {
     const mediaArea = document.getElementById('media-area');
     const panelHeader = document.querySelector('.panel-header');
+    const panelBody = document.querySelector('.panel-body');
 
     // 1. メディアエリアを下にスワイプしてファイルツリーを開く
     mediaArea.addEventListener('touchstart', (e) => {
-        if (!isFolderLoaded) return; // フォルダ未読み込み時は無視
+        if (!isFolderLoaded) return;
         touchStartY = e.touches[0].clientY;
         panelHeight = fileTreePanel.offsetHeight || (window.innerHeight * 0.8);
     }, { passive: true });
@@ -869,7 +877,6 @@ function initSwipeGestures() {
         touchCurrentY = e.touches[0].clientY;
         const diff = touchCurrentY - touchStartY;
 
-        // 下スワイプで、かつパネルが閉じているとき
         if (diff > 10 && !fileTreePanel.classList.contains('open')) {
             isDragging = true;
             fileTreePanel.classList.add('no-transition');
@@ -884,36 +891,67 @@ function initSwipeGestures() {
         fileTreePanel.classList.remove('no-transition');
         const diff = touchCurrentY - touchStartY;
 
-        if (diff > panelHeight / 3) {
+        // 60px 以上スワイプすれば開く（以前は 1/3 パネル高さ ≒ 200px 必要だった）
+        if (diff > 60) {
             openFileTreePanel();
         } else {
             closeFileTreePanel();
         }
     });
 
-    // 2. パネルヘッダーを上にスワイプしてファイルツリーを閉じる
-    panelHeader.addEventListener('touchstart', (e) => {
+    // 2. パネルヘッダー（ドラッグバー）を上にスワイプして閉じる
+    function startClose(e) {
         touchStartY = e.touches[0].clientY;
         panelHeight = fileTreePanel.offsetHeight;
         fileTreePanel.classList.add('no-transition');
-    }, { passive: true });
-
-    panelHeader.addEventListener('touchmove', (e) => {
+    }
+    function moveClose(e) {
         touchCurrentY = e.touches[0].clientY;
         const diff = touchCurrentY - touchStartY;
-
-        // 上スワイプ（または下への少しのドラッグ）
         if (fileTreePanel.classList.contains('open')) {
-            const ty = Math.min(0, diff); // 開いている位置 (0) から上 (-方向にドラッグ)
+            const ty = Math.min(0, diff);
+            fileTreePanel.style.transform = `translateY(${ty}px)`;
+        }
+    }
+    function endClose() {
+        fileTreePanel.classList.remove('no-transition');
+        const diff = touchCurrentY - touchStartY;
+        // 50px 以上上にスワイプすれば閉じる
+        if (diff < -50) {
+            closeFileTreePanel();
+        } else {
+            openFileTreePanel();
+        }
+    }
+
+    panelHeader.addEventListener('touchstart', startClose, { passive: true });
+    panelHeader.addEventListener('touchmove', moveClose, { passive: true });
+    panelHeader.addEventListener('touchend', endClose);
+
+    // 3. パネル本体（リスト）をスクロール最上部でスワイプアップしても閉じる
+    panelBody.addEventListener('touchstart', (e) => {
+        touchStartY = e.touches[0].clientY;
+        panelHeight = fileTreePanel.offsetHeight;
+    }, { passive: true });
+
+    panelBody.addEventListener('touchmove', (e) => {
+        touchCurrentY = e.touches[0].clientY;
+        const diff = touchCurrentY - touchStartY;
+        // スクロールが一番上にある場合のみパネルを引き上げるアニメーション
+        if (fileTreePanel.classList.contains('open') && panelBody.scrollTop === 0 && diff < -10) {
+            isDragging = true;
+            fileTreePanel.classList.add('no-transition');
+            const ty = Math.min(0, diff);
             fileTreePanel.style.transform = `translateY(${ty}px)`;
         }
     }, { passive: true });
 
-    panelHeader.addEventListener('touchend', () => {
+    panelBody.addEventListener('touchend', () => {
+        if (!isDragging) return;
+        isDragging = false;
         fileTreePanel.classList.remove('no-transition');
         const diff = touchCurrentY - touchStartY;
-
-        if (diff < -panelHeight / 3) {
+        if (diff < -50) {
             closeFileTreePanel();
         } else {
             openFileTreePanel();
