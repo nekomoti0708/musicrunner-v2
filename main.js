@@ -139,10 +139,18 @@ function initEventListeners() {
         }
     });
 
-    btnOpenFolder.addEventListener('click', () => {
+    // Updated folder import button handling
+    btnOpenFolder.addEventListener('click', async () => {
         if (window.showDirectoryPicker) {
-            handleOpenDirectoryPicker();
+            try {
+                const handle = await window.showDirectoryPicker();
+                await loadFromHandle(handle);
+            } catch (e) {
+                // If user cancels or error, fallback to input element
+                if (e.name !== 'AbortError') inputFolder.click();
+            }
         } else {
+            // Fallback for browsers without File System Access API
             inputFolder.click();
         }
     });
@@ -310,32 +318,39 @@ async function handleOpenFilePicker() {
 }
 
 // --- フォルダーを開く処理 (File System Access API) ---
-async function handleOpenDirectoryPicker() {
-    try {
-        const dirHandle = await window.showDirectoryPicker();
-        await loadDirectory(dirHandle);
-    } catch (err) {
-        console.error('Directory picker error:', err);
+// Simplified directory picker handler using loadFromHandle
+    async function handleOpenDirectoryPicker() {
+        try {
+            const handle = await window.showDirectoryPicker();
+            await loadFromHandle(handle);
+        } catch (err) {
+            console.error('Directory picker error:', err);
+        }
     }
-}
 
 // --- 前回のフォルダーを開く処理 ---
-async function handleOpenLastDirectory() {
-    try {
-        const lastHandle = await getVal(LAST_DIR_KEY);
-        if (lastHandle) {
-            // アクセス権限の確認と要求
-            const granted = await verifyPermission(lastHandle, false);
-            if (granted) {
-                await loadDirectory(lastHandle);
-            } else {
-                alert('フォルダーへのアクセス権限が拒否されました。再度選択してください。');
-            }
+// Simplified recent folder opening using cached folder files if available
+    async function handleOpenLastDirectory() {
+        if (cachedFolderFiles) {
+            // Use previously cached files from fallback input
+            setupFolderMode(cachedFolderFiles);
+            return;
         }
-    } catch (err) {
-        console.error('Failed to open last directory:', err);
+        // Fallback: try to use previously stored handle via IndexedDB (if supported)
+        try {
+            const lastHandle = await getVal(LAST_DIR_KEY);
+            if (lastHandle) {
+                const granted = await verifyPermission(lastHandle, false);
+                if (granted) {
+                    await loadFromHandle(lastHandle);
+                } else {
+                    alert('フォルダーへのアクセス権限が拒否されました。再度選択してください。');
+                }
+            }
+        } catch (err) {
+            console.error('Failed to open last directory:', err);
+        }
     }
-}
 
 async function verifyPermission(fileHandle, readWrite) {
     const options = {};
@@ -694,13 +709,13 @@ function handleFallbackFolder(e) {
 
     isFolderLoaded = true;
 
-    // フォルダ名（最上位のフォルダ名を取得）
+    // Determine top-level folder name
     let folderName = 'Local Folder';
     if (files[0].webkitRelativePath) {
         folderName = files[0].webkitRelativePath.split('/')[0];
     }
 
-    // 状態記憶用
+    // Load saved UI state if exists
     const stateKey = `musicrunner_state_${folderName}`;
     const savedState = localStorage.getItem(stateKey);
     if (savedState) {
@@ -709,13 +724,20 @@ function handleFallbackFolder(e) {
         currentState = { openFolders: {}, checkedFiles: {} };
     }
 
+    // Cache media files for "recent folder" reuse
+    cachedFolderFiles = files.filter(f => isMediaFile(f.name));
+
+    // Enable the recent‑folder button
+    btnOpenLastFolder.classList.remove('disabled');
+    btnOpenLastFolder.removeAttribute('disabled');
+
+    // Build tree structure and render UI
     flatFiles = [];
     const treeData = buildFallbackTree(files, folderName);
 
-    // プレイリスト作成
+    // Populate playlist from the cached files
     updatePlaylistQueue();
 
-    // レンダリング
     renderFileTree(treeData);
 
     showScreen('play');
