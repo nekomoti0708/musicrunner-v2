@@ -379,6 +379,7 @@ async function handleOpenLastDirectory() {
 
         flatFiles = [];
         const treeData = buildFallbackTree(cachedFolderFiles, folderName);
+        flatFiles = flattenTreeFiles(treeData);
         updatePlaylistQueue();
         renderFileTree(treeData);
         showScreen('play');
@@ -454,8 +455,8 @@ async function loadDirectory(dirHandle) {
     }
 
     // フォルダのトラバース
-    flatFiles = [];
     rootItems = await traverseDirectory(dirHandle);
+    flatFiles = flattenTreeFiles(rootItems);
 
     // プレイリストキューの作成 (チェックボックスの状態を考慮)
     updatePlaylistQueue();
@@ -490,7 +491,6 @@ async function traverseDirectory(dirHandle, relativePath = '') {
                     handle: entry
                 };
                 items.push(fileNode);
-                flatFiles.push(fileNode);
             }
         } else if (entry.kind === 'directory') {
             const subItems = await traverseDirectory(entry, entryPath);
@@ -512,6 +512,19 @@ async function traverseDirectory(dirHandle, relativePath = '') {
         return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
     });
     return items;
+}
+
+// ツリー表示順（深さ優先）でファイル一覧を生成 — 再生順と一覧順を一致させる
+function flattenTreeFiles(items) {
+    const result = [];
+    for (const item of items) {
+        if (item.kind === 'file') {
+            result.push(item);
+        } else if (item.kind === 'directory' && item.children) {
+            result.push(...flattenTreeFiles(item.children));
+        }
+    }
+    return result;
 }
 
 // プレイリストキューの更新
@@ -810,8 +823,8 @@ function handleFallbackFolder(e) {
     updateLastFolderButton();
 
     // Build tree structure and render UI
-    flatFiles = [];
     const treeData = buildFallbackTree(files, folderName);
+    flatFiles = flattenTreeFiles(treeData);
 
     // Populate playlist from the cached files
     updatePlaylistQueue();
@@ -858,7 +871,6 @@ function buildFallbackTree(files, rootName) {
                     file: file
                 };
                 currentLevel.push(fileNode);
-                flatFiles.push(fileNode);
             } else {
                 let folder = currentLevel.find(item => item.kind === 'directory' && item.name === part);
                 if (!folder) {
