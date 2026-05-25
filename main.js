@@ -101,6 +101,12 @@ let currentPlayingFile = null;// 現在再生中のファイル情報 (node)
 let loopMode = 'playlist';    // 'playlist' (チェック順次リピート) or 'single' (単一曲ループ)
 let isFolderLoaded = false;
 let activeFolderName = null;  // 現在のフォルダ名（FSA / フォールバック共通）
+let currentTreeItems = [];    // ファイルツリー（ルート一括チェック用）
+let fileByPath = new Map();   // path → file node（クリック応答を高速化）
+let folderByPath = new Map(); // path → folder node
+let saveStateRaf = 0;
+let bulkRefreshRaf = 0;
+let pendingBulkRefreshFolders = null;
 let cachedFolderFiles = null; // fallback入力からキャッシュしたファイル群（同一セッションのみ）
 
 // 状態記憶用 (LocalStorage)
@@ -159,7 +165,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     initEventListeners();
-initSwipeGestures();
+    initFileTreeInteraction();
+    initSwipeGestures();
 // Register Service Worker for PWA
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
@@ -544,8 +551,293 @@ function saveCurrentState() {
     localStorage.setItem(stateKey, JSON.stringify(currentState));
 }
 
+function scheduleSaveCurrentState() {
+    if (saveStateRaf) cancelAnimationFrame(saveStateRaf);
+    saveStateRaf = requestAnimationFrame(() => {
+        saveStateRaf = 0;
+        saveCurrentState();
+    });
+}
+
+function rebuildTreeIndex(items) {
+    fileByPath = new Map();
+    folderByPath = new Map();
+    function walk(nodes) {
+        for (const node of nodes) {
+            if (node.kind === 'file') {
+                fileByPath.set(node.path, node);
+            } else if (node.kind === 'directory') {
+                folderByPath.set(node.path, node);
+                if (node.children) walk(node.children);
+            }
+        }
+    }
+    walk(items);
+}
+
+function getParentFolderPath(filePath) {
+    const idx = filePath.lastIndexOf('/');
+    return idx === -1 ? null : filePath.substring(0, idx);
+}
+
+function toggleFolderRow(row) {
+    const path = row.dataset.path;
+    const childrenDiv = row.nextElementSibling;
+    if (!childrenDiv || !path) return;
+
+    const isOpen = row.classList.contains('folder-open');
+    if (isOpen) {
+        row.classList.remove('folder-open');
+        childrenDiv.style.display = 'none';
+        currentState.openFolders[path] = false;
+    } else {
+        row.classList.add('folder-open');
+        childrenDiv.style.display = 'flex';
+        currentState.openFolders[path] = true;
+    }
+    scheduleSaveCurrentState();
+}
+
+function initFileTreeInteraction() {
+    if (fileTreeContainer.dataset.interactionBound) return;
+    fileTreeContainer.dataset.interactionBound = '1';
+
+    fileTreeContainer.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.checkbox-container')) return;
+
+        const row = e.target.closest('.tree-row');
+        if (!row || row.dataset.rootBulk) return;
+
+        if (row.classList.contains('folder-row')) {
+            e.preventDefault();
+            toggleFolderRow(row);
+        }
+    }, { passive: false });
+
+    fileTreeContainer.addEventListener('pointerup', (e) => {
+        if (e.target.closest('.checkbox-container')) return;
+
+        const row = e.target.closest('.file-row');
+        if (!row) return;
+
+        const node = fileByPath.get(row.dataset.path);
+        if (node) {
+            playNode(node);
+            closeFileTreePanel();
+        }
+    });
+}
+
+// --- チェックボックス一括操作（直下のファイルのみ） ---
+function isFilePathChecked(path) {
+    return currentState.checkedFiles[path] !== false;
+}
+
+function getRootLevelFiles(items) {
+    return items.filter(item => item.kind === 'file');
+}
+
+function getDirectFileChildren(folderNode) {
+    if (!folderNode.children) return [];
+    return folderNode.children.filter(child => child.kind === 'file');
+}
+
+function getBulkCheckState(fileNodes) {
+    if (fileNodes.length === 0) {
+        return { checked: false, indeterminate: false };
+    }
+    const checkedCount = fileNodes.filter(f => isFilePathChecked(f.path)).length;
+    if (checkedCount === 0) return { checked: false, indeterminate: false };
+    if (checkedCount === fileNodes.length) return { checked: true, indeterminate: false };
+    return { checked: false, indeterminate: true };
+}
+
+function applyCheckboxInputState(input, state) {
+    input.checked = state.checked;
+    input.indeterminate = state.indeterminate;
+    const container = input.closest('.checkbox-container');
+    if (container) syncCheckboxAria(container, input);
+}
+
+function setFilesChecked(fileNodes, checked) {
+    const affectedFolders = new Set();
+    for (const file of fileNodes) {
+        currentState.checkedFiles[file.path] = checked;
+        const row = fileTreeContainer.querySelector(`.file-row[data-path="${CSS.escape(file.path)}"]`);
+        const input = row?.querySelector('.checkbox-input');
+        if (input) {
+            input.checked = checked;
+            input.indeterminate = false;
+        }
+        const parent = getParentFolderPath(file.path);
+        if (parent) affectedFolders.add(parent);
+    }
+    scheduleSaveCurrentState();
+    updatePlaylistQueue();
+    scheduleBulkRefresh(affectedFolders);
+}
+
+function scheduleBulkRefresh(folderPaths) {
+    if (!pendingBulkRefreshFolders) pendingBulkRefreshFolders = new Set();
+    folderPaths.forEach(p => pendingBulkRefreshFolders.add(p));
+    if (bulkRefreshRaf) return;
+    bulkRefreshRaf = requestAnimationFrame(() => {
+        bulkRefreshRaf = 0;
+        const folders = pendingBulkRefreshFolders || new Set();
+        pendingBulkRefreshFolders = null;
+        refreshBulkCheckboxesForFolderPaths(folders);
+    });
+}
+
+function refreshBulkCheckboxesForFolderPaths(folderPaths) {
+    const rootInput = document.getElementById('root-bulk-checkbox');
+    if (rootInput) {
+        applyCheckboxInputState(rootInput, getBulkCheckState(getRootLevelFiles(currentTreeItems)));
+    }
+    for (const folderPath of folderPaths) {
+        const folderNode = folderByPath.get(folderPath);
+        if (!folderNode) continue;
+        const folderInput = fileTreeContainer.querySelector(
+            `.folder-bulk-checkbox[data-folder-path="${CSS.escape(folderPath)}"]`
+        );
+        if (folderInput) {
+            applyCheckboxInputState(folderInput, getBulkCheckState(getDirectFileChildren(folderNode)));
+        }
+    }
+}
+
+function refreshBulkForFileChange(filePath) {
+    const parent = getParentFolderPath(filePath);
+    scheduleBulkRefresh(parent ? new Set([parent]) : new Set());
+}
+
+function toggleCheckboxInput(input, onToggle) {
+    const checked = input.indeterminate ? true : !input.checked;
+    input.checked = checked;
+    input.indeterminate = false;
+    onToggle(checked);
+}
+
+function createCheckboxControl({ variant = 'file', className, dataset, checked, indeterminate, onToggle }) {
+    const cbContainer = document.createElement('div');
+    cbContainer.className = `checkbox-container checkbox-container--${variant}`;
+    cbContainer.setAttribute('role', 'button');
+    cbContainer.setAttribute('aria-pressed', checked ? 'true' : 'false');
+    if (variant === 'file') {
+        cbContainer.title = '再生リストに含める';
+    } else if (variant === 'root') {
+        cbContainer.title = 'フォルダー直下のファイルをすべて選択';
+    } else {
+        cbContainer.title = 'このフォルダー直下のファイルをすべて選択';
+    }
+
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.className = className || 'checkbox-input';
+    input.tabIndex = -1;
+    input.setAttribute('aria-hidden', 'true');
+    if (dataset) {
+        Object.entries(dataset).forEach(([key, value]) => {
+            input.dataset[key] = value;
+        });
+    }
+    applyCheckboxInputState(input, { checked, indeterminate });
+    syncCheckboxAria(cbContainer, input);
+
+    const customSpan = document.createElement('span');
+    customSpan.className = `checkbox-custom checkbox-custom--${variant}`;
+
+    cbContainer.appendChild(input);
+    cbContainer.appendChild(customSpan);
+
+    const stopEvent = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+    input.addEventListener('click', stopEvent);
+    input.addEventListener('change', stopEvent);
+    cbContainer.addEventListener('click', stopEvent, true);
+
+    // 1回のタップで1回だけトグル（連打可・二重発火なし）
+    let activePointerId = null;
+    cbContainer.addEventListener('pointerdown', (e) => {
+        stopEvent(e);
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (activePointerId !== null) return;
+        activePointerId = e.pointerId;
+        try {
+            cbContainer.setPointerCapture(e.pointerId);
+        } catch { /* ignore */ }
+        toggleCheckboxInput(input, (newChecked) => {
+            syncCheckboxAria(cbContainer, input);
+            onToggle(newChecked);
+        });
+    }, { passive: false });
+
+    const releasePointer = (e) => {
+        if (e.pointerId !== activePointerId) return;
+        activePointerId = null;
+        try {
+            if (cbContainer.hasPointerCapture(e.pointerId)) {
+                cbContainer.releasePointerCapture(e.pointerId);
+            }
+        } catch { /* ignore */ }
+    };
+    cbContainer.addEventListener('pointerup', releasePointer);
+    cbContainer.addEventListener('pointercancel', releasePointer);
+
+    return { cbContainer, input };
+}
+
+function syncCheckboxAria(container, input) {
+    if (input.indeterminate) {
+        container.setAttribute('aria-pressed', 'mixed');
+    } else {
+        container.setAttribute('aria-pressed', input.checked ? 'true' : 'false');
+    }
+}
+
+function createRootBulkRow(items) {
+    const rootFiles = getRootLevelFiles(items);
+    if (rootFiles.length === 0) return null;
+
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'tree-row root-folder-row';
+    rowDiv.dataset.rootBulk = 'true';
+
+    const iconDiv = document.createElement('div');
+    iconDiv.className = 'row-icon';
+    iconDiv.innerHTML = `
+        <svg viewBox="0 0 24 24">
+            <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z" fill="currentColor"/>
+        </svg>
+    `;
+    rowDiv.appendChild(iconDiv);
+
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'row-label';
+    labelDiv.textContent = activeFolderName || 'フォルダー';
+    rowDiv.appendChild(labelDiv);
+
+    const bulkState = getBulkCheckState(rootFiles);
+    const { cbContainer, input } = createCheckboxControl({
+        variant: 'root',
+        className: 'checkbox-input root-bulk-checkbox',
+        dataset: {},
+        checked: bulkState.checked,
+        indeterminate: bulkState.indeterminate,
+        onToggle: (checked) => setFilesChecked(rootFiles, checked)
+    });
+    input.id = 'root-bulk-checkbox';
+    rowDiv.appendChild(cbContainer);
+
+    return rowDiv;
+}
+
 // --- ツリーUIのレンダリング ---
 function renderFileTree(items) {
+    currentTreeItems = items;
+    rebuildTreeIndex(items);
     fileTreeContainer.innerHTML = '';
     if (items.length === 0) {
         fileTreeContainer.innerHTML = '<div class="empty-tree-message">再生可能なファイルが見つかりません。</div>';
@@ -553,6 +845,11 @@ function renderFileTree(items) {
     }
 
     const fragment = document.createDocumentFragment();
+
+    if (isFolderLoaded && activeFolderName) {
+        const rootRow = createRootBulkRow(items);
+        if (rootRow) fragment.appendChild(rootRow);
+    }
 
     function createNodeElement(node) {
         const nodeDiv = document.createElement('div');
@@ -596,58 +893,36 @@ function renderFileTree(items) {
         labelDiv.textContent = node.name;
         rowDiv.appendChild(labelDiv);
 
-        // 3. 右側要素 (ファイルの場合はチェックボックス)
+        // 3. 右側要素 (ファイル / フォルダのチェックボックス)
         if (node.kind === 'file') {
-            const cbContainer = document.createElement('div');
-            cbContainer.className = 'checkbox-container';
-
-            const label = document.createElement('label');
-            const input = document.createElement('input');
-            input.type = 'checkbox';
-            input.className = 'checkbox-input';
-            input.dataset.path = node.path;
-            
-            // 状態の復元 (デフォルト true)
-            const isChecked = currentState.checkedFiles[node.path];
-            input.checked = isChecked !== false;
-
-            const customSpan = document.createElement('span');
-            customSpan.className = 'checkbox-custom';
-
-            label.appendChild(input);
-            label.appendChild(customSpan);
-            cbContainer.appendChild(label);
-            rowDiv.appendChild(cbContainer);
-
-            // 行クリックで再生 (チェックボックス自体をクリックした時は再生しない)
-            rowDiv.addEventListener('click', (e) => {
-                if (e.target.closest('.checkbox-container')) return;
-                playNode(node);
-                closeFileTreePanel();
-            });
-
-            // チェックボックスの変更イベント
-            input.addEventListener('change', () => {
-                currentState.checkedFiles[node.path] = input.checked;
-                saveCurrentState();
-                updatePlaylistQueue();
-            });
-        } else {
-            // フォルダの場合は開閉処理
-            rowDiv.addEventListener('click', () => {
-                const childrenDiv = rowDiv.nextElementSibling;
-                const isOpen = rowDiv.classList.contains('folder-open');
-                if (isOpen) {
-                    rowDiv.classList.remove('folder-open');
-                    childrenDiv.style.display = 'none';
-                    currentState.openFolders[node.path] = false;
-                } else {
-                    rowDiv.classList.add('folder-open');
-                    childrenDiv.style.display = 'flex';
-                    currentState.openFolders[node.path] = true;
+            const fileChecked = isFilePathChecked(node.path);
+            const { cbContainer } = createCheckboxControl({
+                variant: 'file',
+                dataset: { path: node.path },
+                checked: fileChecked,
+                indeterminate: false,
+                onToggle: (checked) => {
+                    currentState.checkedFiles[node.path] = checked;
+                    scheduleSaveCurrentState();
+                    updatePlaylistQueue();
+                    refreshBulkForFileChange(node.path);
                 }
-                saveCurrentState();
             });
+            rowDiv.appendChild(cbContainer);
+        } else {
+            const directFiles = getDirectFileChildren(node);
+            if (directFiles.length > 0) {
+                const bulkState = getBulkCheckState(directFiles);
+                const { cbContainer } = createCheckboxControl({
+                    variant: 'folder',
+                    className: 'checkbox-input folder-bulk-checkbox',
+                    dataset: { folderPath: node.path },
+                    checked: bulkState.checked,
+                    indeterminate: bulkState.indeterminate,
+                    onToggle: (checked) => setFilesChecked(directFiles, checked)
+                });
+                rowDiv.appendChild(cbContainer);
+            }
         }
 
         nodeDiv.appendChild(rowDiv);
