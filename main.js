@@ -751,40 +751,17 @@ function createCheckboxControl({ variant = 'file', className, dataset, checked, 
     cbContainer.appendChild(customSpan);
 
     const stopEvent = (e) => {
-        e.preventDefault();
         e.stopPropagation();
     };
-    input.addEventListener('click', stopEvent);
-    input.addEventListener('change', stopEvent);
-    cbContainer.addEventListener('click', stopEvent, true);
-
-    // 1回のタップで1回だけトグル（連打可・二重発火なし）
-    let activePointerId = null;
-    cbContainer.addEventListener('pointerdown', (e) => {
-        stopEvent(e);
-        if (e.pointerType === 'mouse' && e.button !== 0) return;
-        if (activePointerId !== null) return;
-        activePointerId = e.pointerId;
-        try {
-            cbContainer.setPointerCapture(e.pointerId);
-        } catch { /* ignore */ }
+    
+    cbContainer.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         toggleCheckboxInput(input, (newChecked) => {
             syncCheckboxAria(cbContainer, input);
             onToggle(newChecked);
         });
-    }, { passive: false });
-
-    const releasePointer = (e) => {
-        if (e.pointerId !== activePointerId) return;
-        activePointerId = null;
-        try {
-            if (cbContainer.hasPointerCapture(e.pointerId)) {
-                cbContainer.releasePointerCapture(e.pointerId);
-            }
-        } catch { /* ignore */ }
-    };
-    cbContainer.addEventListener('pointerup', releasePointer);
-    cbContainer.addEventListener('pointercancel', releasePointer);
+    });
 
     return { cbContainer, input };
 }
@@ -1256,35 +1233,7 @@ function initSwipeGestures() {
     panelHeader.addEventListener('touchmove', moveClose, { passive: true });
     panelHeader.addEventListener('touchend', endClose);
 
-    // 3. パネル本体（リスト）をスクロール最上部でスワイプアップしても閉じる
-    panelBody.addEventListener('touchstart', (e) => {
-        touchStartY = e.touches[0].clientY;
-        panelHeight = fileTreePanel.offsetHeight;
-    }, { passive: true });
 
-    panelBody.addEventListener('touchmove', (e) => {
-        touchCurrentY = e.touches[0].clientY;
-        const diff = touchCurrentY - touchStartY;
-        // スクロールが一番上にある場合のみパネルを引き上げるアニメーション
-        if (fileTreePanel.classList.contains('open') && panelBody.scrollTop === 0 && diff < -10) {
-            isDragging = true;
-            fileTreePanel.classList.add('no-transition');
-            const ty = Math.min(0, diff);
-            fileTreePanel.style.transform = `translateY(${ty}px)`;
-        }
-    }, { passive: true });
-
-    panelBody.addEventListener('touchend', () => {
-        if (!isDragging) return;
-        isDragging = false;
-        fileTreePanel.classList.remove('no-transition');
-        const diff = touchCurrentY - touchStartY;
-        if (diff < -50) {
-            closeFileTreePanel();
-        } else {
-            openFileTreePanel();
-        }
-    });
 }
 
 function openFileTreePanel() {
