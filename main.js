@@ -289,7 +289,9 @@ function playMedia() {
             navigator.mediaSession.playbackState = 'playing';
         }
     }).catch(err => {
-        console.error('Play failed:', err);
+        if (err.name !== 'AbortError') {
+            console.error('Play failed:', err);
+        }
     });
 }
 
@@ -1490,14 +1492,19 @@ function initEffectsUI() {
         }
     });
 
-    // パネルの開閉
+    // パネルの開閉 (トグル)
     btnEffects.addEventListener('pointerdown', (e) => {
         e.preventDefault();
-        effectsPanel.classList.add('open');
-        effectsPanel.style.transform = 'translateY(0)';
+        if (effectsPanel.classList.contains('open')) {
+            effectsPanel.classList.remove('open');
+            effectsPanel.style.transform = 'translateY(-100%)';
+        } else {
+            effectsPanel.classList.add('open');
+            effectsPanel.style.transform = 'translateY(0)';
+        }
     });
 
-    // スワイプで閉じる
+    // スワイプで閉じる (上にスワイプ)
     let ey = 0, currY = 0;
     dragHeader.addEventListener('touchstart', (e) => {
         ey = e.touches[0].clientY;
@@ -1507,16 +1514,18 @@ function initEffectsUI() {
     dragHeader.addEventListener('touchmove', (e) => {
         currY = e.touches[0].clientY;
         const diff = currY - ey;
-        if (diff > 0) {
-            effectsPanel.style.transform = `translateY(${diff}px)`;
+        if (effectsPanel.classList.contains('open')) {
+            const ty = Math.min(0, diff);
+            effectsPanel.style.transform = `translateY(${ty}px)`;
         }
     }, { passive: true });
     
     dragHeader.addEventListener('touchend', () => {
         effectsPanel.classList.remove('no-transition');
-        if (currY - ey > 50) {
+        const diff = currY - ey;
+        if (diff < -50) {
             effectsPanel.classList.remove('open');
-            effectsPanel.style.transform = 'translateY(100%)';
+            effectsPanel.style.transform = 'translateY(-100%)';
         } else {
             effectsPanel.style.transform = 'translateY(0)';
         }
