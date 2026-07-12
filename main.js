@@ -1349,7 +1349,7 @@ function initAudioEffects() {
     trebleNode.frequency.value = 3000;
 
     distortionNode = audioCtx.createWaveShaper();
-    distortionNode.curve = null;
+    distortionNode.curve = new Float32Array([-1, 1]); // linear curve to avoid silence bug
     distortionNode.oversample = '4x';
 
     // リバーブ用の並列ルーティング
@@ -1387,7 +1387,7 @@ function initAudioEffects() {
 }
 
 function makeDistortionCurve(amount) {
-    if (amount === 0) return null; // no distortion
+    if (amount === 0) return new Float32Array([-1, 1]); // linear curve (no distortion)
     const k = amount;
     const n_samples = 44100;
     const curve = new Float32Array(n_samples);
