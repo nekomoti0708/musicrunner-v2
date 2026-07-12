@@ -6,7 +6,7 @@
 window.audioPresets = [
     { 
         id: 'normal', 
-        name: 'Normal (通常)', 
+        name: 'ノーマル', 
         bass: 0, 
         treble: 0, 
         dist: 0, 
@@ -14,27 +14,27 @@ window.audioPresets = [
     },
     { 
         id: 'live', 
-        name: 'Live Concert (ライブ会場)', 
-        bass: 4, 
-        treble: 2, 
-        dist: 5, 
-        rev: 60 
+        name: 'ライブ', 
+        bass: -5, 
+        treble: -2, 
+        dist: 4, 
+        rev: 50 
     },
     { 
         id: 'radio', 
-        name: 'Radio (古いラジオ)', 
-        bass: -15, 
-        treble: -10, 
-        dist: 40, 
+        name: 'ラジオ', 
+        bass: -12, 
+        treble: -18, 
+        dist: 20, 
         rev: 0 
     },
     { 
         id: 'club', 
-        name: 'Club (クラブ・重低音)', 
-        bass: 12, 
-        treble: 4, 
-        dist: 10, 
-        rev: 15 
+        name: 'クラブ', 
+        bass: 8, 
+        treble: -5, 
+        dist: 0, 
+        rev: 5 
     },
 
     // ==========================================
