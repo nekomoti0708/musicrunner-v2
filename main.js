@@ -225,6 +225,7 @@ function initEventListeners() {
         mainVideo.volume = volumeSlider.value;
     });
 
+    setupMediaSession();
 }
 
 // --- メディアファイル判定ヘルパー ---
@@ -278,6 +279,9 @@ function playMedia() {
         iconPlay.classList.add('hidden');
         iconPause.classList.remove('hidden');
         document.getElementById('music-placeholder').classList.add('playing');
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'playing';
+        }
     }).catch(err => {
         console.error('Play failed:', err);
     });
@@ -288,6 +292,9 @@ function pauseMedia() {
     iconPlay.classList.remove('hidden');
     iconPause.classList.add('hidden');
     document.getElementById('music-placeholder').classList.remove('playing');
+    if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'paused';
+    }
 }
 
 function updateProgressBar() {
@@ -990,6 +997,7 @@ async function playNode(node) {
             currentArtist.textContent = node.path.includes('/') ? node.path.substring(0, node.path.lastIndexOf('/')) : 'Local Folder';
         }
 
+        updateMediaSession(node);
         playMedia();
     } catch (err) {
         console.error('Play node error:', err);
@@ -1008,20 +1016,70 @@ function handlePlaybackEnded() {
             pauseMedia();
             return;
         }
+        playNextFile();
+    }
+}
 
-        // 現在の曲のインデックスを取得
-        let nextIndex = 0;
-        if (currentPlayingFile) {
-            const currentIndex = playlistQueue.findIndex(f => f.path === currentPlayingFile.path);
-            if (currentIndex !== -1) {
-                nextIndex = currentIndex + 1;
-                if (nextIndex >= playlistQueue.length) {
-                    nextIndex = 0; // ループして最初に戻る
-                }
+function playNextFile() {
+    if (playlistQueue.length === 0) return;
+    let nextIndex = 0;
+    if (currentPlayingFile) {
+        const currentIndex = playlistQueue.findIndex(f => f.path === currentPlayingFile.path);
+        if (currentIndex !== -1) {
+            nextIndex = currentIndex + 1;
+            if (nextIndex >= playlistQueue.length) {
+                nextIndex = 0; // ループして最初に戻る
             }
         }
+    }
+    playNode(playlistQueue[nextIndex]);
+}
 
-        playNode(playlistQueue[nextIndex]);
+function playPreviousFile() {
+    if (playlistQueue.length === 0) return;
+    let prevIndex = playlistQueue.length - 1;
+    if (currentPlayingFile) {
+        const currentIndex = playlistQueue.findIndex(f => f.path === currentPlayingFile.path);
+        if (currentIndex !== -1) {
+            prevIndex = currentIndex - 1;
+            if (prevIndex < 0) {
+                prevIndex = playlistQueue.length - 1;
+            }
+        }
+    }
+    playNode(playlistQueue[prevIndex]);
+}
+
+function setupMediaSession() {
+    if ('mediaSession' in navigator) {
+        navigator.mediaSession.setActionHandler('play', playMedia);
+        navigator.mediaSession.setActionHandler('pause', pauseMedia);
+        navigator.mediaSession.setActionHandler('previoustrack', playPreviousFile);
+        navigator.mediaSession.setActionHandler('nexttrack', playNextFile);
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (details.fastSeek && ('fastSeek' in mainVideo)) {
+                mainVideo.fastSeek(details.seekTime);
+            } else {
+                mainVideo.currentTime = details.seekTime;
+            }
+        });
+    }
+}
+
+function updateMediaSession(node) {
+    if ('mediaSession' in navigator) {
+        const title = node.name.substring(0, node.name.lastIndexOf('.')) || node.name;
+        const artist = node.path.includes('/') ? node.path.substring(0, node.path.lastIndexOf('/')) : 'Local Folder';
+        
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: title,
+            artist: artist,
+            album: 'Music Runner',
+            artwork: [
+                { src: 'icons/icon_192_1779500783783.png', sizes: '192x192', type: 'image/png' },
+                { src: 'icons/icon_512_1779500897773.png', sizes: '512x512', type: 'image/png' }
+            ]
+        });
     }
 }
 
