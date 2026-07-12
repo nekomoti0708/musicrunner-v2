@@ -1437,16 +1437,15 @@ function updateAudioEffects() {
     dryGain.gain.value = 1 - (revMix * 0.3);
 }
 
-// プリセット設定
-const effectPresets = {
-    normal: { bass: 0, treble: 0, dist: 0, rev: 0 },
-    live: { bass: 4, treble: 2, dist: 5, rev: 60 },
-    radio: { bass: -15, treble: -10, dist: 40, rev: 0 },
-    club: { bass: 12, treble: 4, dist: 10, rev: 15 }
-};
+// プリセット設定は audio-presets.js で管理 (window.audioPresets)
 
 function applyEffectPreset(presetId) {
-    const p = effectPresets[presetId] || effectPresets.normal;
+    const presets = window.audioPresets || [];
+    let p = presets.find(item => item.id === presetId);
+    if (!p) {
+        // 見つからない場合は最初のプリセットか、オール0のフォールバック
+        p = presets.length > 0 ? presets[0] : { bass: 0, treble: 0, dist: 0, rev: 0 };
+    }
     document.getElementById('slider-bass').value = p.bass;
     document.getElementById('slider-treble').value = p.treble;
     document.getElementById('slider-distortion').value = p.dist;
@@ -1466,8 +1465,20 @@ function initEffectsUI() {
     const effectsPanel = document.getElementById('effects-panel');
     const dragHeader = document.getElementById('effects-drag-header');
     
-    // オプションに Custom を追加
+    // オプションを動的に追加
     const presetSelect = document.getElementById('effect-preset');
+    presetSelect.innerHTML = ''; // 念のためクリア
+    
+    if (window.audioPresets) {
+        window.audioPresets.forEach(preset => {
+            const opt = document.createElement('option');
+            opt.value = preset.id;
+            opt.textContent = preset.name;
+            presetSelect.appendChild(opt);
+        });
+    }
+
+    // オプションに Custom を追加
     const customOption = document.createElement('option');
     customOption.value = 'custom';
     customOption.textContent = 'Custom';
