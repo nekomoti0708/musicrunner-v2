@@ -167,8 +167,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     initEventListeners();
     initFileTreeInteraction();
     initSwipeGestures();
+    initEffectsUI();
 // Register Service Worker for PWA
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js')
         .catch(err => console.error('SW registration failed:', err));
 }
@@ -275,6 +276,11 @@ function togglePlayPause() {
 }
 
 function playMedia() {
+    initAudioEffects();
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    
     mainVideo.play().then(() => {
         iconPlay.classList.add('hidden');
         iconPause.classList.remove('hidden');
@@ -1070,16 +1076,25 @@ function updateMediaSession(node) {
     if ('mediaSession' in navigator) {
         const title = node.name.substring(0, node.name.lastIndexOf('.')) || node.name;
         const artist = node.path.includes('/') ? node.path.substring(0, node.path.lastIndexOf('/')) : 'Local Folder';
-        
-        navigator.mediaSession.metadata = new MediaMetadata({
+        const metadataInit = {
             title: title,
             artist: artist,
-            album: 'Music Runner',
-            artwork: [
+            album: 'Music Runner'
+        };
+
+        // file:// プロトコルでは相対パスの画像読み込みがエラーになるため除外する
+        if (window.location.protocol !== 'file:') {
+            metadataInit.artwork = [
                 { src: 'icons/icon_192_1779500783783.png', sizes: '192x192', type: 'image/png' },
                 { src: 'icons/icon_512_1779500897773.png', sizes: '512x512', type: 'image/png' }
-            ]
-        });
+            ];
+        }
+
+        try {
+            navigator.mediaSession.metadata = new MediaMetadata(metadataInit);
+        } catch (e) {
+            console.warn('Failed to set MediaMetadata:', e);
+        }
     }
 }
 
@@ -1302,4 +1317,208 @@ function openFileTreePanel() {
 function closeFileTreePanel() {
     fileTreePanel.classList.remove('open');
     fileTreePanel.style.transform = 'translateY(-100%)';
+}
+
+// --- Web Audio API エフェクト ---
+let audioCtx = null;
+let sourceNode = null;
+let bassNode = null;
+let trebleNode = null;
+let distortionNode = null;
+let reverbConvolver = null;
+let reverbGain = null;
+let dryGain = null;
+let compressor = null;
+
+function initAudioEffects() {
+    if (audioCtx) return; // すでに初期化されていればスキップ
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+
+    audioCtx = new AudioContext();
+    sourceNode = audioCtx.createMediaElementSource(mainVideo);
+
+    bassNode = audioCtx.createBiquadFilter();
+    bassNode.type = 'lowshelf';
+    bassNode.frequency.value = 200;
+    
+    trebleNode = audioCtx.createBiquadFilter();
+    trebleNode.type = 'highshelf';
+    trebleNode.frequency.value = 3000;
+
+    distortionNode = audioCtx.createWaveShaper();
+    distortionNode.curve = new Float32Array([0, 0]);
+    distortionNode.oversample = '4x';
+
+    // リバーブ用の並列ルーティング
+    reverbConvolver = audioCtx.createConvolver();
+    reverbConvolver.buffer = createReverbBuffer(audioCtx, 2.5, 2.0); // 2.5秒の残響
+    
+    reverbGain = audioCtx.createGain();
+    reverbGain.gain.value = 0; // 初期はリバーブなし
+
+    dryGain = audioCtx.createGain();
+    dryGain.gain.value = 1;
+
+    compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -24;
+    compressor.knee.value = 30;
+    compressor.ratio.value = 12;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+
+    // 接続: Source -> Bass -> Treble -> Distortion -> (Dry / Reverb) -> Compressor -> Destination
+    sourceNode.connect(bassNode);
+    bassNode.connect(trebleNode);
+    trebleNode.connect(distortionNode);
+
+    // Dry (原音)
+    distortionNode.connect(dryGain);
+    dryGain.connect(compressor);
+
+    // Wet (リバーブ)
+    distortionNode.connect(reverbConvolver);
+    reverbConvolver.connect(reverbGain);
+    reverbGain.connect(compressor);
+
+    compressor.connect(audioCtx.destination);
+}
+
+function makeDistortionCurve(amount) {
+    if (amount === 0) return new Float32Array([0, 0]); // no distortion
+    const k = amount;
+    const n_samples = 44100;
+    const curve = new Float32Array(n_samples);
+    const deg = Math.PI / 180;
+    for (let i = 0; i < n_samples; ++i) {
+        let x = i * 2 / n_samples - 1;
+        curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
+}
+
+function createReverbBuffer(ctx, duration, decay) {
+    const sampleRate = ctx.sampleRate;
+    const length = sampleRate * duration;
+    const impulse = ctx.createBuffer(2, length, sampleRate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+    for (let i = 0; i < length; i++) {
+        const factor = Math.pow(1 - i / length, decay);
+        left[i] = (Math.random() * 2 - 1) * factor;
+        right[i] = (Math.random() * 2 - 1) * factor;
+    }
+    return impulse;
+}
+
+function updateAudioEffects() {
+    if (!audioCtx) return;
+    const bass = parseFloat(document.getElementById('slider-bass').value);
+    const treble = parseFloat(document.getElementById('slider-treble').value);
+    const dist = parseFloat(document.getElementById('slider-distortion').value);
+    const rev = parseFloat(document.getElementById('slider-reverb').value);
+
+    bassNode.gain.value = bass;
+    trebleNode.gain.value = treble;
+    
+    // dist は 0〜100
+    if (dist === 0) {
+        distortionNode.curve = new Float32Array([0, 0]); // linear
+    } else {
+        distortionNode.curve = makeDistortionCurve(dist);
+    }
+
+    // rev は 0〜100
+    const revMix = rev / 100;
+    reverbGain.gain.value = revMix * 1.5;
+    // dry信号は少し下げる（全体の音量を保つため）
+    dryGain.gain.value = 1 - (revMix * 0.3);
+}
+
+// プリセット設定
+const effectPresets = {
+    normal: { bass: 0, treble: 0, dist: 0, rev: 0 },
+    live: { bass: 4, treble: 2, dist: 5, rev: 60 },
+    radio: { bass: -15, treble: -10, dist: 40, rev: 0 },
+    club: { bass: 12, treble: 4, dist: 10, rev: 15 }
+};
+
+function applyEffectPreset(presetId) {
+    const p = effectPresets[presetId] || effectPresets.normal;
+    document.getElementById('slider-bass').value = p.bass;
+    document.getElementById('slider-treble').value = p.treble;
+    document.getElementById('slider-distortion').value = p.dist;
+    document.getElementById('slider-reverb').value = p.rev;
+    
+    document.getElementById('val-bass').textContent = p.bass + ' dB';
+    document.getElementById('val-treble').textContent = p.treble + ' dB';
+    document.getElementById('val-distortion').textContent = p.dist + ' %';
+    document.getElementById('val-reverb').textContent = p.rev + ' %';
+    
+    updateAudioEffects();
+}
+
+// --- エフェクトUI のイベントリスナー設定 ---
+function initEffectsUI() {
+    const btnEffects = document.getElementById('btn-effects');
+    const effectsPanel = document.getElementById('effects-panel');
+    const dragHeader = document.getElementById('effects-drag-header');
+    
+    // オプションに Custom を追加
+    const presetSelect = document.getElementById('effect-preset');
+    const customOption = document.createElement('option');
+    customOption.value = 'custom';
+    customOption.textContent = 'Custom';
+    customOption.style.display = 'none';
+    presetSelect.appendChild(customOption);
+    
+    // UIスライダーのイベント
+    ['bass', 'treble', 'distortion', 'reverb'].forEach(key => {
+        const slider = document.getElementById('slider-' + key);
+        const val = document.getElementById('val-' + key);
+        slider.addEventListener('input', () => {
+            const unit = (key === 'bass' || key === 'treble') ? ' dB' : ' %';
+            val.textContent = slider.value + unit;
+            presetSelect.value = 'custom';
+            updateAudioEffects();
+        });
+    });
+
+    presetSelect.addEventListener('change', (e) => {
+        if (e.target.value !== 'custom') {
+            applyEffectPreset(e.target.value);
+        }
+    });
+
+    // パネルの開閉
+    btnEffects.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        effectsPanel.classList.add('open');
+        effectsPanel.style.transform = 'translateY(0)';
+    });
+
+    // スワイプで閉じる
+    let ey = 0, currY = 0;
+    dragHeader.addEventListener('touchstart', (e) => {
+        ey = e.touches[0].clientY;
+        effectsPanel.classList.add('no-transition');
+    }, { passive: true });
+    
+    dragHeader.addEventListener('touchmove', (e) => {
+        currY = e.touches[0].clientY;
+        const diff = currY - ey;
+        if (diff > 0) {
+            effectsPanel.style.transform = `translateY(${diff}px)`;
+        }
+    }, { passive: true });
+    
+    dragHeader.addEventListener('touchend', () => {
+        effectsPanel.classList.remove('no-transition');
+        if (currY - ey > 50) {
+            effectsPanel.classList.remove('open');
+            effectsPanel.style.transform = 'translateY(100%)';
+        } else {
+            effectsPanel.style.transform = 'translateY(0)';
+        }
+    });
 }

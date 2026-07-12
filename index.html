@@ -113,6 +113,13 @@
                         </svg>
                     </button>
 
+                    <!-- エフェクト設定 -->
+                    <button id="btn-effects" class="control-btn" aria-label="エフェクト">
+                        <svg class="icon-effects" viewBox="0 0 24 24">
+                            <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" fill="currentColor"/>
+                        </svg>
+                    </button>
+
                     <!-- 再生・停止 -->
                     <button id="btn-play-pause" class="control-btn play-trigger" aria-label="再生">
                         <svg class="icon-play" viewBox="0 0 24 24">
@@ -142,7 +149,61 @@
                         </div>
                     </div>
                 </div>
-                <div class="panel-header">
+                <div class="panel-header" id="tree-drag-header">
+                    <div class="drag-handle"></div>
+                </div>
+            </div>
+
+            <!-- エフェクトパネル -->
+            <div id="effects-panel" class="file-tree-panel">
+                <div class="panel-body">
+                    <h3 style="color: #e2e0e7; margin-bottom: 20px; font-weight: 500;">Audio Effects</h3>
+                    
+                    <div style="margin-bottom: 25px;">
+                        <label for="effect-preset" style="color: #8e8a9f; font-size: 0.85rem; display: block; margin-bottom: 10px;">Preset</label>
+                        <select id="effect-preset" style="width: 100%; padding: 12px; background-color: #1a132a; color: #e2e0e7; border: 1px solid #362e4f; border-radius: 8px; font-family: inherit; font-size: 1rem; outline: none; cursor: pointer;">
+                            <option value="normal">Normal</option>
+                            <option value="live">Live Concert</option>
+                            <option value="radio">Radio</option>
+                            <option value="club">Club</option>
+                        </select>
+                    </div>
+
+                    <div class="effect-sliders">
+                        <div class="effect-slider-group" style="margin-bottom: 20px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <label style="color: #cbbffc; font-size: 0.85rem;">Bass</label>
+                                <span id="val-bass" style="color: #8e8a9f; font-size: 0.8rem; font-variant-numeric: tabular-nums;">0 dB</span>
+                            </div>
+                            <input type="range" id="slider-bass" min="-20" max="20" value="0" step="1" style="width: 100%;">
+                        </div>
+
+                        <div class="effect-slider-group" style="margin-bottom: 20px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <label style="color: #cbbffc; font-size: 0.85rem;">Treble</label>
+                                <span id="val-treble" style="color: #8e8a9f; font-size: 0.8rem; font-variant-numeric: tabular-nums;">0 dB</span>
+                            </div>
+                            <input type="range" id="slider-treble" min="-20" max="20" value="0" step="1" style="width: 100%;">
+                        </div>
+
+                        <div class="effect-slider-group" style="margin-bottom: 20px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <label style="color: #cbbffc; font-size: 0.85rem;">Distortion</label>
+                                <span id="val-distortion" style="color: #8e8a9f; font-size: 0.8rem; font-variant-numeric: tabular-nums;">0 %</span>
+                            </div>
+                            <input type="range" id="slider-distortion" min="0" max="100" value="0" step="1" style="width: 100%;">
+                        </div>
+
+                        <div class="effect-slider-group" style="margin-bottom: 20px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <label style="color: #cbbffc; font-size: 0.85rem;">Reverb</label>
+                                <span id="val-reverb" style="color: #8e8a9f; font-size: 0.8rem; font-variant-numeric: tabular-nums;">0 %</span>
+                            </div>
+                            <input type="range" id="slider-reverb" min="0" max="100" value="0" step="1" style="width: 100%;">
+                        </div>
+                    </div>
+                </div>
+                <div class="panel-header" id="effects-drag-header">
                     <div class="drag-handle"></div>
                 </div>
             </div>
