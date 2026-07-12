@@ -1424,11 +1424,7 @@ function updateAudioEffects() {
     trebleNode.gain.value = treble;
     
     // dist は 0〜100
-    if (dist === 0) {
-        distortionNode.curve = new Float32Array([0, 0]); // linear
-    } else {
-        distortionNode.curve = makeDistortionCurve(dist);
-    }
+    distortionNode.curve = makeDistortionCurve(dist);
 
     // rev は 0〜100
     const revMix = rev / 100;
