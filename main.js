@@ -1349,7 +1349,7 @@ function initAudioEffects() {
     trebleNode.frequency.value = 3000;
 
     distortionNode = audioCtx.createWaveShaper();
-    distortionNode.curve = new Float32Array([0, 0]);
+    distortionNode.curve = null;
     distortionNode.oversample = '4x';
 
     // リバーブ用の並列ルーティング
@@ -1387,7 +1387,7 @@ function initAudioEffects() {
 }
 
 function makeDistortionCurve(amount) {
-    if (amount === 0) return new Float32Array([0, 0]); // no distortion
+    if (amount === 0) return null; // no distortion
     const k = amount;
     const n_samples = 44100;
     const curve = new Float32Array(n_samples);
@@ -1508,37 +1508,38 @@ function initEffectsUI() {
         e.preventDefault();
         if (effectsPanel.classList.contains('open')) {
             effectsPanel.classList.remove('open');
-            effectsPanel.style.transform = 'translateY(-100%)';
+            effectsPanel.style.transform = 'translateX(100%)';
         } else {
             effectsPanel.classList.add('open');
-            effectsPanel.style.transform = 'translateY(0)';
+            effectsPanel.style.transform = 'translateX(0)';
         }
     });
 
-    // スワイプで閉じる (上にスワイプ)
-    let ey = 0, currY = 0;
+    // スワイプで閉じる (右にスワイプ)
+    let ex = 0, currX = 0;
     dragHeader.addEventListener('touchstart', (e) => {
-        ey = e.touches[0].clientY;
+        ex = e.touches[0].clientX;
         effectsPanel.classList.add('no-transition');
     }, { passive: true });
     
     dragHeader.addEventListener('touchmove', (e) => {
-        currY = e.touches[0].clientY;
-        const diff = currY - ey;
+        currX = e.touches[0].clientX;
+        const diff = currX - ex;
         if (effectsPanel.classList.contains('open')) {
-            const ty = Math.min(0, diff);
-            effectsPanel.style.transform = `translateY(${ty}px)`;
+            // 右スワイプ(正の値)のみ許可
+            const tx = Math.max(0, diff);
+            effectsPanel.style.transform = `translateX(${tx}px)`;
         }
     }, { passive: true });
     
     dragHeader.addEventListener('touchend', () => {
         effectsPanel.classList.remove('no-transition');
-        const diff = currY - ey;
-        if (diff < -50) {
+        const diff = currX - ex;
+        if (diff > 50) {
             effectsPanel.classList.remove('open');
-            effectsPanel.style.transform = 'translateY(-100%)';
+            effectsPanel.style.transform = 'translateX(100%)';
         } else {
-            effectsPanel.style.transform = 'translateY(0)';
+            effectsPanel.style.transform = 'translateX(0)';
         }
     });
 }

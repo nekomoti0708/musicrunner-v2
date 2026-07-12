@@ -438,6 +438,39 @@ input[type="range"]::-webkit-slider-thumb:active {
     -webkit-overflow-scrolling: touch;
 }
 
+/* エフェクトパネル専用のスタイル（右から左へスライド） */
+#effects-panel {
+    top: 0;
+    right: 0;
+    left: auto;
+    width: 85%;
+    max-width: 340px;
+    height: 100%;
+    border-radius: 0;
+    border-top-left-radius: 24px;
+    border-bottom-left-radius: 24px;
+    transform: translateX(100%);
+    flex-direction: row-reverse;
+}
+
+#effects-panel.open {
+    transform: translateX(0);
+}
+
+#effects-panel .panel-header {
+    border-top: none;
+    border-right: 1px solid #201736;
+    padding: 24px 10px;
+    min-width: 30px;
+    min-height: auto;
+    flex-direction: column;
+}
+
+#effects-panel .drag-handle {
+    width: 5px;
+    height: 42px;
+}
+
 /* -------------------------------------------------------------
    4. ファイルツリーのスタイリング
    ------------------------------------------------------------- */
