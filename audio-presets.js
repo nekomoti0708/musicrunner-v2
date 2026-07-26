@@ -31,10 +31,10 @@ window.audioPresets = [
     { 
         id: 'club', 
         name: 'クラブ', 
-        bass: 8, 
-        treble: -5, 
-        dist: 0, 
-        rev: 5 
+        bass: 2, 
+        treble: -20, 
+        dist: 1, 
+        rev: 2 
     },
 
     // ==========================================
