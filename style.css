@@ -246,14 +246,15 @@ body, html {
 
 
 
-/* 下部 30%: コントローラーエリア */
+/* 下部 コントローラーエリア (4段構造) */
 #controller-area {
-    flex: 3;
+    flex: 4;
     background-color: #0e0a19;
-    padding: 24px;
+    padding: 16px 24px 8px;
     display: flex;
     flex-direction: column;
-    justify-content: space-around;
+    justify-content: space-evenly;
+    gap: 2px;
     border-top: 1px solid #1c152a;
     z-index: 3;
     position: relative;
@@ -300,15 +301,25 @@ body, html {
 
 /* 音量スライダー */
 .volume-container {
-    gap: 16px;
-    max-width: 280px;
-    margin: 0 auto;
+    gap: 12px;
+    width: 100%;
+}
+
+.volume-icon-wrapper {
+    min-width: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
 }
 
 .volume-icon {
     width: 20px;
     height: 20px;
     color: #8e8a9f;
+}
+
+#volume-value {
+    text-align: right;
 }
 
 /* レンジスライダーのカスタマイズ */
@@ -337,14 +348,24 @@ input[type="range"]::-webkit-slider-thumb:active {
     transform: scale(1.3);
 }
 
-/* コントロールボタン群 */
+/* コントロールボタン群 共通 */
 .control-buttons {
     display: flex;
-    justify-content: space-between;
+    justify-content: space-around;
     align-items: center;
-    max-width: 320px;
-    margin: 0 auto;
     width: 100%;
+    max-width: 440px;
+    margin: 0 auto;
+}
+
+/* 段3: メインコントロール (前へ・再生停止・次へ) */
+.control-buttons-main {
+    padding: 0 8px;
+}
+
+/* 段4: サブコントロール (ループ・エフェクト・ホーム) */
+.control-buttons-sub {
+    padding: 0 8px;
 }
 
 .control-btn {
@@ -365,18 +386,25 @@ input[type="range"]::-webkit-slider-thumb:active {
     background-color: rgba(255, 255, 255, 0.05);
 }
 
-.control-btn svg {
-    width: 26px;
-    height: 26px;
+/* 段3ボタンのアイコンサイズ */
+.control-buttons-main .control-btn svg {
+    width: 28px;
+    height: 28px;
+}
+
+/* 段4ボタンのアイコンサイズ（やや小さめ） */
+.control-buttons-sub .control-btn svg {
+    width: 22px;
+    height: 22px;
 }
 
 /* 特殊サイズ：再生・停止ボタン */
 #btn-play-pause {
     color: #e2e0e7;
     background-color: #261d3a;
-    width: 58px;
-    height: 58px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    width: 64px;
+    height: 64px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     transition: transform 0.08s, background-color 0.15s;
     touch-action: manipulation;
 }
@@ -387,8 +415,8 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 #btn-play-pause svg {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
 }
 
 /* アクティブ状態のボタン */

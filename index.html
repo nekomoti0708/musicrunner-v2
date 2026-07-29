@@ -22,7 +22,7 @@
             <div class="home-container">
                 <header class="home-header">
                     <h1 style="font-size: 2.2rem; font-weight: 600; color: #e2e0e7; letter-spacing: 1px;">Music Runner</h1>
-                    <span style="font-size: 0.9rem; color: #a899e6; background-color: rgba(168, 153, 230, 0.15); padding: 4px 12px; border-radius: 12px; font-weight: 500;">v2.8.2</span>
+                    <span style="font-size: 0.9rem; color: #a899e6; background-color: rgba(168, 153, 230, 0.15); padding: 4px 12px; border-radius: 12px; font-weight: 500;">v2.9</span>
                 </header>
                 <main class="home-buttons">
                     <!-- ファイルを開く -->
@@ -89,25 +89,55 @@
                 <!-- ビジュアライザー (背景) -->
                 <canvas id="visualizer-canvas"></canvas>
 
-                <!-- 再生バー -->
+                <!-- 段1: 再生バー -->
                 <div class="slider-container progress-container">
                     <span id="time-current" class="time-label">00:00</span>
                     <input type="range" id="progress-slider" min="0" max="100" value="0">
                     <span id="time-total" class="time-label">00:00</span>
                 </div>
 
-                <!-- 音量 -->
+                <!-- 段2: 音量 -->
                 <div class="slider-container volume-container">
-                    <svg class="volume-icon" viewBox="0 0 24 24">
-                        <path
-                            d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
-                            fill="currentColor" />
-                    </svg>
+                    <div class="volume-icon-wrapper">
+                        <svg class="volume-icon" viewBox="0 0 24 24">
+                            <path
+                                d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+                                fill="currentColor" />
+                        </svg>
+                    </div>
                     <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.8">
+                    <span id="volume-value" class="time-label">80%</span>
                 </div>
 
-                <!-- ボタン類 -->
-                <div class="control-buttons">
+                <!-- 段3: メインコントロール (前へ・再生停止・次へ) -->
+                <div class="control-buttons control-buttons-main">
+                    <!-- 前の曲へ -->
+                    <button id="btn-prev" class="control-btn" aria-label="前の曲へ">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" fill="currentColor" />
+                        </svg>
+                    </button>
+
+                    <!-- 再生・停止 -->
+                    <button id="btn-play-pause" class="control-btn play-trigger" aria-label="再生">
+                        <svg class="icon-play" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" fill="currentColor" />
+                        </svg>
+                        <svg class="icon-pause hidden" viewBox="0 0 24 24">
+                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="currentColor" />
+                        </svg>
+                    </button>
+
+                    <!-- 次の曲へ -->
+                    <button id="btn-next" class="control-btn" aria-label="次の曲へ">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M6 18l8.5-6L6 6v12zm2-8.14L11.03 12 8 14.14V9.86zM16 6h2v12h-2z" fill="currentColor" />
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- 段4: サブコントロール (ループ・エフェクト・ホーム) -->
+                <div class="control-buttons control-buttons-sub">
                     <!-- 繰り返しボタン (Loop) -->
                     <button id="btn-loop" class="control-btn" aria-label="ループ再生">
                         <svg class="icon-loop" viewBox="0 0 24 24">
@@ -120,16 +150,6 @@
                     <button id="btn-effects" class="control-btn" aria-label="エフェクト">
                         <svg class="icon-effects" viewBox="0 0 24 24">
                             <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" fill="currentColor"/>
-                        </svg>
-                    </button>
-
-                    <!-- 再生・停止 -->
-                    <button id="btn-play-pause" class="control-btn play-trigger" aria-label="再生">
-                        <svg class="icon-play" viewBox="0 0 24 24">
-                            <path d="M8 5v14l11-7z" fill="currentColor" />
-                        </svg>
-                        <svg class="icon-pause hidden" viewBox="0 0 24 24">
-                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="currentColor" />
                         </svg>
                     </button>
 

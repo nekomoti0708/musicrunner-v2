@@ -133,12 +133,15 @@ const currentArtist = document.getElementById('current-artist');
 
 const progressSlider = document.getElementById('progress-slider');
 const volumeSlider = document.getElementById('volume-slider');
+const volumeValue = document.getElementById('volume-value');
 const timeCurrent = document.getElementById('time-current');
 const timeTotal = document.getElementById('time-total');
 
 const btnLoop = document.getElementById('btn-loop');
 const btnPlayPause = document.getElementById('btn-play-pause');
 const btnBackHome = document.getElementById('btn-back-home');
+const btnPrev = document.getElementById('btn-prev');
+const btnNext = document.getElementById('btn-next');
 
 const fileTreePanel = document.getElementById('file-tree-panel');
 const fileTreeContainer = document.getElementById('file-tree-container');
@@ -209,6 +212,8 @@ function initEventListeners() {
         e.preventDefault();
         toggleLoopMode();
     });
+    btnPrev.addEventListener('click', () => playPreviousFile());
+    btnNext.addEventListener('click', () => playNextFile());
 
     // ビデオ再生イベント
     mainVideo.addEventListener('timeupdate', updateProgressBar);
@@ -224,6 +229,9 @@ function initEventListeners() {
     });
     volumeSlider.addEventListener('input', () => {
         mainVideo.volume = volumeSlider.value;
+        if (volumeValue) {
+            volumeValue.textContent = `${Math.round(volumeSlider.value * 100)}%`;
+        }
     });
 
     setupMediaSession();
@@ -617,28 +625,20 @@ function initFileTreeInteraction() {
     if (fileTreeContainer.dataset.interactionBound) return;
     fileTreeContainer.dataset.interactionBound = '1';
 
-    fileTreeContainer.addEventListener('pointerdown', (e) => {
+    fileTreeContainer.addEventListener('click', (e) => {
         if (e.target.closest('.checkbox-container')) return;
 
         const row = e.target.closest('.tree-row');
         if (!row || row.dataset.rootBulk) return;
 
         if (row.classList.contains('folder-row')) {
-            e.preventDefault();
             toggleFolderRow(row);
-        }
-    }, { passive: false });
-
-    fileTreeContainer.addEventListener('pointerup', (e) => {
-        if (e.target.closest('.checkbox-container')) return;
-
-        const row = e.target.closest('.file-row');
-        if (!row) return;
-
-        const node = fileByPath.get(row.dataset.path);
-        if (node) {
-            playNode(node);
-            closeFileTreePanel();
+        } else if (row.classList.contains('file-row')) {
+            const node = fileByPath.get(row.dataset.path);
+            if (node) {
+                playNode(node);
+                closeFileTreePanel();
+            }
         }
     });
 }
@@ -1373,7 +1373,7 @@ function initAudioEffects() {
     compressor.release.value = 0.25;
 
     analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256; // 128 bins
+    analyser.fftSize = 1024; // 512 bins for ultra-smooth full-width visualizer
     analyser.smoothingTimeConstant = 0.6; // 0(即時) 〜 1(ゆっくり)。デフォルト0.8より速く反応させる
 
     // 接続: Source -> Bass -> Treble -> Distortion -> (Dry / Reverb) -> Compressor -> Destination
@@ -1425,18 +1425,31 @@ function drawVisualizer() {
 
     visualizerCtx.clearRect(0, 0, w, h);
 
-    // 下位50%の周波数帯を使用、バー数は24本に集約
-    const useBins = Math.floor(allBins * 0.5);
-    const barCount = 24;
-    const step = useBins / barCount;
+    // 画面幅 w に応じてバーの本数を動的に決定（画面横幅全体に美しく展開）
+    const barWidth = 10;
+    const gap = 4;
+    const unit = barWidth + gap;
+    const barCount = Math.max(16, Math.floor((w - gap) / unit));
+    const totalWidth = barCount * unit - gap;
+    let x = (w - totalWidth) / 2;
+
+    // 下位60%の周波数帯を使用
+    const useBins = Math.floor(allBins * 0.6);
+    const maxUseIndex = Math.max(1, useBins - 1);
 
     const bars = [];
     for (let i = 0; i < barCount; i++) {
-        let sum = 0, count = 0;
-        const start = Math.floor(i * step);
-        const end = Math.floor((i + 1) * step);
-        for (let j = start; j < end; j++) { sum += dataArray[j]; count++; }
-        bars.push(count > 0 ? sum / count : 0);
+        const binPos = (barCount > 1) ? (i / (barCount - 1)) * maxUseIndex : 0;
+        const index = Math.floor(binPos);
+        const fraction = binPos - index;
+        
+        let val;
+        if (index >= maxUseIndex) {
+            val = dataArray[maxUseIndex];
+        } else {
+            val = dataArray[index] * (1 - fraction) + dataArray[index + 1] * fraction;
+        }
+        bars.push(val);
     }
 
     // 最大高さを全体の45%に制限
@@ -1444,22 +1457,11 @@ function drawVisualizer() {
     const maxVal = Math.max(...bars, 1);
     const targetScale = Math.min(1, (maxBarHeight * 255) / (maxVal * h));
 
-    // スケールを滑らかに変化させる:
-    // - 音が大きくなった（最大値超え）→ 即座に下げる
-    // - 音が小さくなった（余裕が生まれた）→ ゆっくりと1.0に近づける
-    // これにより「ずっと15を出し続けても、10上限にクリップされた後
-    // 音が静かになったらじわじわ上限が1.0に戻る」動作を実現する
     if (targetScale < smoothCurrentScale) {
         smoothCurrentScale = targetScale;
     } else {
         smoothCurrentScale += (targetScale - smoothCurrentScale) * 0.015; // ゆっくり戻す
     }
-
-    // バーのレイアウト
-    const barWidth = 12;
-    const gap = 4;
-    const totalWidth = barCount * (barWidth + gap) - gap;
-    let x = (w - totalWidth) / 2;
 
     for (let i = 0; i < barCount; i++) {
         const rawHeight = (bars[i] / 255) * h * smoothCurrentScale;
@@ -1494,7 +1496,7 @@ function drawVisualizer() {
         }
 
         visualizerCtx.restore();
-        x += barWidth + gap;
+        x += unit;
     }
 }
 
