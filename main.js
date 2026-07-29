@@ -146,10 +146,69 @@ const btnNext = document.getElementById('btn-next');
 const fileTreePanel = document.getElementById('file-tree-panel');
 const fileTreeContainer = document.getElementById('file-tree-container');
 
+// 読み込みオーバーレイ要素
+const loadingOverlay = document.getElementById('loading-overlay');
+const loadingTitle = document.getElementById('loading-title');
+const loadingStatus = document.getElementById('loading-status');
+
 // アイコン表示切り替え用
 const iconLoop = btnLoop.querySelector('.icon-loop');
 const iconPlay = btnPlayPause.querySelector('.icon-play');
 const iconPause = btnPlayPause.querySelector('.icon-pause');
+
+// --- 読み込みオーバーレイ制御 ---
+let loadingScanCount = 0;
+let loadingScanRaf = 0;
+let loadingActive = false;
+
+function showLoading(title = 'フォルダーを読み込んでいます') {
+    if (!loadingOverlay) return;
+    loadingTitle.textContent = title;
+    loadingStatus.textContent = 'ファイルをスキャン中...';
+    loadingOverlay.classList.remove('error');
+    loadingOverlay.classList.add('active');
+    loadingScanCount = 0;
+    loadingActive = true;
+}
+
+function hideLoading() {
+    if (!loadingOverlay) return;
+    loadingOverlay.classList.remove('active', 'error');
+    loadingActive = false;
+    if (loadingScanRaf) {
+        cancelAnimationFrame(loadingScanRaf);
+        loadingScanRaf = 0;
+    }
+}
+
+function showLoadingError(message) {
+    if (!loadingOverlay) return;
+    loadingTitle.textContent = '読み込みに失敗しました';
+    loadingStatus.textContent = message;
+    loadingOverlay.classList.add('error');
+    // 一定時間後に自動的に閉じる
+    setTimeout(() => {
+        hideLoading();
+    }, 2500);
+}
+
+function updateLoadingCount(count) {
+    if (!loadingActive) return;
+    loadingScanCount = count;
+    // requestAnimationFrame で描画をスロットリング（毎フレーム1回だけ更新）
+    if (!loadingScanRaf) {
+        loadingScanRaf = requestAnimationFrame(() => {
+            loadingScanRaf = 0;
+            if (loadingActive) {
+                loadingStatus.textContent = `${loadingScanCount} 個のエントリをスキャン中...`;
+            }
+        });
+    }
+}
+
+function yieldToUI() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
 
 // --- 初期化処理 ---
 window.addEventListener('DOMContentLoaded', async () => {
@@ -401,23 +460,36 @@ async function handleOpenLastDirectory() {
         }
         activeFolderName = folderName;
 
-        const stateKey = `musicrunner_state_${folderName}`;
-        const savedState = localStorage.getItem(stateKey);
-        currentState = savedState
-            ? JSON.parse(savedState)
-            : { openFolders: {}, checkedFiles: {} };
+        // 読み込みオーバーレイを表示（描画のためにイベントループに譲る）
+        showLoading(`「${folderName}」を復元しています`);
+        loadingStatus.textContent = `${cachedFolderFiles.length} 個のファイルを処理中...`;
+        await yieldToUI();
 
-        flatFiles = [];
-        const treeData = buildFallbackTree(cachedFolderFiles, folderName);
-        flatFiles = flattenTreeFiles(treeData);
-        updatePlaylistQueue();
-        renderFileTree(treeData);
-        showScreen('play');
+        try {
+            const stateKey = `musicrunner_state_${folderName}`;
+            const savedState = localStorage.getItem(stateKey);
+            currentState = savedState
+                ? JSON.parse(savedState)
+                : { openFolders: {}, checkedFiles: {} };
 
-        if (playlistQueue.length > 0) {
-            playNode(playlistQueue[0]);
-        } else if (flatFiles.length > 0) {
-            playNode(flatFiles[0]);
+            flatFiles = [];
+            const treeData = buildFallbackTree(cachedFolderFiles, folderName);
+            flatFiles = flattenTreeFiles(treeData);
+            updatePlaylistQueue();
+            renderFileTree(treeData);
+            showScreen('play');
+
+            // 読み込み完了: オーバーレイを閉じる
+            hideLoading();
+
+            if (playlistQueue.length > 0) {
+                playNode(playlistQueue[0]);
+            } else if (flatFiles.length > 0) {
+                playNode(flatFiles[0]);
+            }
+        } catch (err) {
+            console.error('handleOpenLastDirectory cache restore error:', err);
+            showLoadingError('フォルダーの復元中にエラーが発生しました');
         }
         return;
     }
@@ -467,50 +539,66 @@ async function loadDirectory(dirHandle) {
     directoryHandle = dirHandle;
     isFolderLoaded = true;
 
-    // IndexedDB に保存して次回起動時に備える
-    await setVal(LAST_DIR_KEY, dirHandle);
-    saveLastFolderMeta(dirHandle.name, 'handle');
-    cachedFolderFiles = null;
-    await updateLastFolderButton();
+    // 読み込みオーバーレイを表示
+    showLoading(`「${dirHandle.name}」を読み込んでいます`);
 
-    // 状態記憶用のキーをフォルダ名から生成
-    const stateKey = `musicrunner_state_${dirHandle.name}`;
-    const savedState = localStorage.getItem(stateKey);
-    if (savedState) {
-        currentState = JSON.parse(savedState);
-        if (!currentState.openFolders) currentState.openFolders = {};
-        if (!currentState.checkedFiles) currentState.checkedFiles = {};
-    } else {
-        currentState = { openFolders: {}, checkedFiles: {} };
-    }
+    try {
+        // IndexedDB に保存して次回起動時に備える
+        await setVal(LAST_DIR_KEY, dirHandle);
+        saveLastFolderMeta(dirHandle.name, 'handle');
+        cachedFolderFiles = null;
+        await updateLastFolderButton();
 
-    // フォルダのトラバース
-    rootItems = await traverseDirectory(dirHandle);
-    flatFiles = flattenTreeFiles(rootItems);
+        // 状態記憶用のキーをフォルダ名から生成
+        const stateKey = `musicrunner_state_${dirHandle.name}`;
+        const savedState = localStorage.getItem(stateKey);
+        if (savedState) {
+            currentState = JSON.parse(savedState);
+            if (!currentState.openFolders) currentState.openFolders = {};
+            if (!currentState.checkedFiles) currentState.checkedFiles = {};
+        } else {
+            currentState = { openFolders: {}, checkedFiles: {} };
+        }
 
-    // プレイリストキューの作成 (チェックボックスの状態を考慮)
-    updatePlaylistQueue();
+        // フォルダのトラバース
+        rootItems = await traverseDirectory(dirHandle);
+        flatFiles = flattenTreeFiles(rootItems);
 
-    // UIレンダリング
-    renderFileTree(rootItems);
+        // プレイリストキューの作成 (チェックボックスの状態を考慮)
+        updatePlaylistQueue();
 
-    showScreen('play');
+        // UIレンダリング
+        renderFileTree(rootItems);
 
-    // キューに曲があれば最初の曲を再生する
-    if (playlistQueue.length > 0) {
-        playNode(playlistQueue[0]);
-    } else if (flatFiles.length > 0) {
-        // 全てチェックが外れている場合はフラット配列の最初を再生
-        playNode(flatFiles[0]);
-    } else {
-        alert('再生可能なメディアファイルが見つかりません。');
+        showScreen('play');
+
+        // 読み込み完了: オーバーレイを閉じる
+        hideLoading();
+
+        // キューに曲があれば最初の曲を再生する
+        if (playlistQueue.length > 0) {
+            playNode(playlistQueue[0]);
+        } else if (flatFiles.length > 0) {
+            // 全てチェックが外れている場合はフラット配列の最初を再生
+            playNode(flatFiles[0]);
+        } else {
+            alert('再生可能なメディアファイルが見つかりません。');
+        }
+    } catch (err) {
+        console.error('loadDirectory error:', err);
+        showLoadingError('フォルダーの読み込み中にエラーが発生しました');
     }
 }
 
 // 再帰的にディレクトリをトラバース
 async function traverseDirectory(dirHandle, relativePath = '') {
     const items = [];
+    let entryCount = 0;
     for await (const entry of dirHandle.values()) {
+        entryCount++;
+        // 進捗表示を更新（スロットリング付き）
+        updateLoadingCount(entryCount);
+
         const entryPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
         if (entry.kind === 'file') {
             if (isMediaFile(entry.name)) {
@@ -534,6 +622,10 @@ async function traverseDirectory(dirHandle, relativePath = '') {
                     children: subItems
                 });
             }
+        }
+        // 大量エントリ時にUIが固まるのを防ぐため、定期的にイベントループに譲る
+        if (entryCount % 50 === 0) {
+            await yieldToUI();
         }
     }
     // フォルダー → ファイルの順で、それぞれa-z
@@ -1122,7 +1214,7 @@ function handleFallbackFiles(e) {
     }
 }
 
-function handleFallbackFolder(e) {
+async function handleFallbackFolder(e) {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
@@ -1134,36 +1226,49 @@ function handleFallbackFolder(e) {
         folderName = files[0].webkitRelativePath.split('/')[0];
     }
 
-    // Load saved UI state if exists
-    const stateKey = `musicrunner_state_${folderName}`;
-    const savedState = localStorage.getItem(stateKey);
-    if (savedState) {
-        currentState = JSON.parse(savedState);
-    } else {
-        currentState = { openFolders: {}, checkedFiles: {} };
-    }
+    // 読み込みオーバーレイを表示（描画のためにイベントループに譲る）
+    showLoading(`「${folderName}」を読み込んでいます`);
+    loadingStatus.textContent = `${files.length} 個のファイルを処理中...`;
+    await yieldToUI();
 
-    // 同一セッション内の「前回のフォルダー」用（File オブジェクトは永続化不可）
-    cachedFolderFiles = files.filter(f => isMediaFile(f.name));
-    directoryHandle = null;
-    saveLastFolderMeta(folderName, 'fallback');
-    updateLastFolderButton();
+    try {
+        // Load saved UI state if exists
+        const stateKey = `musicrunner_state_${folderName}`;
+        const savedState = localStorage.getItem(stateKey);
+        if (savedState) {
+            currentState = JSON.parse(savedState);
+        } else {
+            currentState = { openFolders: {}, checkedFiles: {} };
+        }
 
-    // Build tree structure and render UI
-    const treeData = buildFallbackTree(files, folderName);
-    flatFiles = flattenTreeFiles(treeData);
+        // 同一セッション内の「前回のフォルダー」用（File オブジェクトは永続化不可）
+        cachedFolderFiles = files.filter(f => isMediaFile(f.name));
+        directoryHandle = null;
+        saveLastFolderMeta(folderName, 'fallback');
+        updateLastFolderButton();
 
-    // Populate playlist from the cached files
-    updatePlaylistQueue();
+        // Build tree structure and render UI
+        const treeData = buildFallbackTree(files, folderName);
+        flatFiles = flattenTreeFiles(treeData);
 
-    renderFileTree(treeData);
+        // Populate playlist from the cached files
+        updatePlaylistQueue();
 
-    showScreen('play');
+        renderFileTree(treeData);
 
-    if (playlistQueue.length > 0) {
-        playNode(playlistQueue[0]);
-    } else if (flatFiles.length > 0) {
-        playNode(flatFiles[0]);
+        showScreen('play');
+
+        // 読み込み完了: オーバーレイを閉じる
+        hideLoading();
+
+        if (playlistQueue.length > 0) {
+            playNode(playlistQueue[0]);
+        } else if (flatFiles.length > 0) {
+            playNode(flatFiles[0]);
+        }
+    } catch (err) {
+        console.error('handleFallbackFolder error:', err);
+        showLoadingError('フォルダーの読み込み中にエラーが発生しました');
     }
 }
 

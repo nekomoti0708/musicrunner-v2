@@ -228,6 +228,21 @@
                 </div>
             </div>
         </section>
+
+        <!-- 読み込み中オーバーレイ -->
+        <div id="loading-overlay" class="loading-overlay">
+            <div class="loading-card">
+                <div class="loading-spinner"></div>
+                <svg class="loading-error-icon" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor"/>
+                </svg>
+                <h3 id="loading-title" class="loading-title">フォルダーを読み込んでいます</h3>
+                <div class="loading-progress-bar">
+                    <div class="loading-progress-fill"></div>
+                </div>
+                <p id="loading-status" class="loading-status">ファイルをスキャン中...</p>
+            </div>
+        </div>
     </div>
 
     <!-- アプリケーションのメインロジック -->

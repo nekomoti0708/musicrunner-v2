@@ -778,3 +778,123 @@ input[type="range"]::-webkit-slider-thumb:active {
 .no-transition {
     transition: none !important;
 }
+
+/* -------------------------------------------------------------
+   5. 読み込み中オーバーレイ
+   ------------------------------------------------------------- */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(8, 5, 14, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+
+.loading-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.loading-card {
+    width: 80%;
+    max-width: 320px;
+    background-color: #120d1e;
+    border: 1px solid #221c32;
+    border-radius: 20px;
+    padding: 32px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    text-align: center;
+}
+
+/* スピナー */
+.loading-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #221c32;
+    border-top-color: #a899e6;
+    border-radius: 50%;
+    animation: loading-spin 0.9s linear infinite;
+}
+
+@keyframes loading-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* エラーアイコン（通常時は非表示） */
+.loading-error-icon {
+    width: 48px;
+    height: 48px;
+    color: #e57373;
+    display: none;
+}
+
+.loading-overlay.error .loading-spinner {
+    display: none;
+}
+
+.loading-overlay.error .loading-error-icon {
+    display: block;
+}
+
+.loading-title {
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: #e2e0e7;
+    letter-spacing: 0.3px;
+}
+
+/* 不定プログレスバー */
+.loading-progress-bar {
+    width: 100%;
+    height: 6px;
+    background-color: #201a2e;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.loading-progress-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 40%;
+    height: 100%;
+    background: linear-gradient(90deg, #6b5a9e, #a899e6);
+    border-radius: 3px;
+    animation: loading-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes loading-indeterminate {
+    0%   { left: -40%; }
+    100% { left: 100%; }
+}
+
+.loading-overlay.error .loading-progress-bar {
+    display: none;
+}
+
+.loading-status {
+    font-size: 0.85rem;
+    color: #8e8a9f;
+    font-variant-numeric: tabular-nums;
+    min-height: 1.2em;
+    line-height: 1.4;
+}
+
+.loading-overlay.error .loading-status {
+    color: #e57373;
+}
