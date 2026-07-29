@@ -376,6 +376,8 @@ function updateProgressBar() {
     if (!mainVideo.duration) return;
     progressSlider.value = Math.floor(mainVideo.currentTime);
     timeCurrent.textContent = formatTime(mainVideo.currentTime);
+    // 再生位置を定期的に保存（復元用）
+    scheduleSavePlaybackPosition();
 }
 
 // --- ループモードの切り替え ---
@@ -482,11 +484,8 @@ async function handleOpenLastDirectory() {
             // 読み込み完了: オーバーレイを閉じる
             hideLoading();
 
-            if (playlistQueue.length > 0) {
-                playNode(playlistQueue[0]);
-            } else if (flatFiles.length > 0) {
-                playNode(flatFiles[0]);
-            }
+            // 自動再生せず、チェック状態に応じて復元 or 「選択されていません」表示
+            restorePlayback();
         } catch (err) {
             console.error('handleOpenLastDirectory cache restore error:', err);
             showLoadingError('フォルダーの復元中にエラーが発生しました');
@@ -575,15 +574,8 @@ async function loadDirectory(dirHandle) {
         // 読み込み完了: オーバーレイを閉じる
         hideLoading();
 
-        // キューに曲があれば最初の曲を再生する
-        if (playlistQueue.length > 0) {
-            playNode(playlistQueue[0]);
-        } else if (flatFiles.length > 0) {
-            // 全てチェックが外れている場合はフラット配列の最初を再生
-            playNode(flatFiles[0]);
-        } else {
-            alert('再生可能なメディアファイルが見つかりません。');
-        }
+        // 自動再生せず、チェック状態に応じて復元 or 「選択されていません」表示
+        restorePlayback();
     } catch (err) {
         console.error('loadDirectory error:', err);
         showLoadingError('フォルダーの読み込み中にエラーが発生しました');
@@ -653,8 +645,8 @@ function flattenTreeFiles(items) {
 function updatePlaylistQueue() {
     playlistQueue = flatFiles.filter(file => {
         const isChecked = currentState.checkedFiles[file.path];
-        // デフォルトではチェックボックスはオン(true)とする
-        return isChecked !== false;
+        // 明示的にチェックされた曲のみキューに含める（デフォルトはオフ）
+        return isChecked === true;
     });
 }
 
@@ -737,7 +729,7 @@ function initFileTreeInteraction() {
 
 // --- チェックボックス一括操作（直下のファイルのみ） ---
 function isFilePathChecked(path) {
-    return currentState.checkedFiles[path] !== false;
+    return currentState.checkedFiles[path] === true;
 }
 
 function getRootLevelFiles(items) {
@@ -1054,7 +1046,9 @@ function highlightPlayingRow() {
 }
 
 // --- メディアの再生処理 ---
-async function playNode(node) {
+// autoPlay: false の場合はロードのみ行い再生しない（フォルダ読み込み時の復元用）
+// seekTime: 指定された場合はロード後にその位置へシークする
+async function playNode(node, { autoPlay = true, seekTime = null } = {}) {
     if (!node) return;
 
     try {
@@ -1084,6 +1078,19 @@ async function playNode(node) {
         const objectURL = URL.createObjectURL(file);
         mainVideo.src = objectURL;
 
+        // シーク位置の復元（loadedmetadata 待ち）
+        if (seekTime !== null && seekTime > 0) {
+            const onLoaded = () => {
+                try {
+                    mainVideo.currentTime = seekTime;
+                } catch (e) {
+                    console.warn('Seek failed:', e);
+                }
+                mainVideo.removeEventListener('loadedmetadata', onLoaded);
+            };
+            mainVideo.addEventListener('loadedmetadata', onLoaded);
+        }
+
         // UI表示の設定
         const isVid = isVideoFile(node.name);
         if (isVid) {
@@ -1098,14 +1105,91 @@ async function playNode(node) {
         }
 
         updateMediaSession(node);
-        playMedia();
+
+        if (autoPlay) {
+            playMedia();
+        } else {
+            // 自動再生しない場合は一時停止状態のUIにする
+            iconPlay.classList.remove('hidden');
+            iconPause.classList.add('hidden');
+            musicPlaceholder.classList.remove('playing');
+        }
     } catch (err) {
         console.error('Play node error:', err);
     }
 }
 
+// --- 再生位置の保存・復元 ---
+let savePositionRaf = 0;
+
+function savePlaybackPosition() {
+    if (!currentPlayingFile) return;
+    const folderName = activeFolderName || directoryHandle?.name;
+    if (!folderName) return;
+    currentState.lastPlayedFile = currentPlayingFile.path;
+    currentState.lastPlayedTime = mainVideo.currentTime || 0;
+    scheduleSaveCurrentState();
+}
+
+function scheduleSavePlaybackPosition() {
+    if (savePositionRaf) return;
+    savePositionRaf = requestAnimationFrame(() => {
+        savePositionRaf = 0;
+        savePlaybackPosition();
+    });
+}
+
+// フォルダ読み込み後の再生復元処理
+// チェックされた曲があれば前回再生位置から再開（自動再生なし）
+// チェックされた曲がなければ「選択されていません」を表示
+function restorePlayback() {
+    if (playlistQueue.length > 0) {
+        // 前回再生していたファイルをキューから探す
+        const lastPath = currentState.lastPlayedFile;
+        const lastTime = currentState.lastPlayedTime || 0;
+        let targetNode = null;
+
+        if (lastPath) {
+            targetNode = playlistQueue.find(f => f.path === lastPath);
+        }
+        // 見つからなければキューの最初の曲
+        if (!targetNode) {
+            targetNode = playlistQueue[0];
+        }
+
+        // ロードのみ（自動再生なし）、シーク位置あり
+        playNode(targetNode, { autoPlay: false, seekTime: lastTime });
+    } else if (flatFiles.length > 0) {
+        // チェックされた曲がない場合は「選択されていません」を表示
+        showNoSelectionMessage();
+    } else {
+        // メディアファイル自体が存在しない
+        showNoSelectionMessage();
+    }
+}
+
+// 「選択されていません」メッセージを表示
+function showNoSelectionMessage() {
+    currentPlayingFile = null;
+    highlightPlayingRow();
+    musicPlaceholder.classList.add('active');
+    musicPlaceholder.classList.remove('playing');
+    mainVideo.style.display = 'none';
+    if (mainVideo.src) {
+        URL.revokeObjectURL(mainVideo.src);
+        mainVideo.removeAttribute('src');
+        mainVideo.load();
+    }
+    currentTitle.textContent = '選択されていません';
+    currentArtist.textContent = 'チェックボックスにチェックを入れてください';
+    iconPlay.classList.remove('hidden');
+    iconPause.classList.add('hidden');
+}
+
 // 再生終了時のロジック
 function handlePlaybackEnded() {
+    // 再生中のファイルがない場合は何もしない（選択されていません表示中の誤発火を防ぐ）
+    if (!currentPlayingFile) return;
     if (loopMode === 'single') {
         // 単一曲ループ: 再度同じ曲を再生
         mainVideo.currentTime = 0;
@@ -1261,11 +1345,8 @@ async function handleFallbackFolder(e) {
         // 読み込み完了: オーバーレイを閉じる
         hideLoading();
 
-        if (playlistQueue.length > 0) {
-            playNode(playlistQueue[0]);
-        } else if (flatFiles.length > 0) {
-            playNode(flatFiles[0]);
-        }
+        // 自動再生せず、チェック状態に応じて復元 or 「選択されていません」表示
+        restorePlayback();
     } catch (err) {
         console.error('handleFallbackFolder error:', err);
         showLoadingError('フォルダーの読み込み中にエラーが発生しました');
