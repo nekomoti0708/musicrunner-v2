@@ -1181,7 +1181,6 @@ function showNoSelectionMessage() {
         mainVideo.load();
     }
     currentTitle.textContent = '選択されていません';
-    currentArtist.textContent = 'チェックボックスにチェックを入れてください';
     iconPlay.classList.remove('hidden');
     iconPause.classList.add('hidden');
 }
