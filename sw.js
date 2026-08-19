@@ -1,5 +1,5 @@
 // sw.js - Simple Service Worker for caching assets
-const CACHE_NAME = 'music-runner-v2-cash';
+const CACHE_NAME = 'music-runner-v2-cache';
 const OFFLINE_URL = 'index.html';
 
 const ASSETS_TO_CACHE = [
