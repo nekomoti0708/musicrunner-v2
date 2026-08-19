@@ -517,24 +517,36 @@ input[type="range"]::-webkit-slider-thumb:active {
     height: 42px;
 }
 
-/* 固定フォルダー表示バー */
+/* 固定フォルダー表示バー (絶対配置オーバーレイでスクロール領域の高さを一切変動させない) */
 .sticky-folder-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 12px 16px;
-    background-color: #1a132c;
+    background-color: rgba(26, 19, 44, 0.95);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border-bottom: 1px solid #322650;
     color: #cbbffc;
     font-size: 0.95rem;
     font-weight: 600;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
     z-index: 50;
-    flex-shrink: 0;
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: auto;
 }
 
 .sticky-folder-bar.hidden {
-    display: none !important;
+    opacity: 0;
+    transform: translateY(-100%);
+    pointer-events: none;
+    display: flex !important;
 }
 
 .sticky-folder-bar .row-icon {
