@@ -2,6 +2,19 @@
    Music Runner v2.0 - Application Logic (Vanilla JS)
    ------------------------------------------------------------- */
 
+// --- 旧 Eruda (デバッグツール) 残存要素の強制的クリア ---
+(function cleanupEruda() {
+    try {
+        const removeTargets = ['eruda', 'eruda-container'];
+        removeTargets.forEach(idOrClass => {
+            document.querySelectorAll('#' + idOrClass + ', .' + idOrClass).forEach(el => el.remove());
+        });
+        localStorage.removeItem('eruda-dev-tools');
+        localStorage.removeItem('eruda-entry-btn');
+        localStorage.removeItem('eruda-active-tab');
+    } catch (e) {}
+})();
+
 // --- IndexedDB ユーティリティ (前回のフォルダー保存用) ---
 const DB_NAME = 'MusicRunnerDB';
 const STORE_NAME = 'keyval';
