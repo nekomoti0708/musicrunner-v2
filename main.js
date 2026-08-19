@@ -705,9 +705,64 @@ function toggleFolderRow(row) {
     scheduleSaveCurrentState();
 }
 
+// --- スクロール追従フォルダー名固定ヘッダー ---
+function updateStickyFolderHeader() {
+    const panelBody = document.getElementById('tree-panel-body');
+    const stickyBar = document.getElementById('sticky-folder-bar');
+    const stickyName = document.getElementById('sticky-folder-name');
+    if (!panelBody || !stickyBar || !stickyName) return;
+
+    // ルートフォルダーおよびサブフォルダーすべてのフォルダー行を取得
+    const allFolderRows = Array.from(panelBody.querySelectorAll('.folder-row, .root-folder-row'));
+    if (allFolderRows.length === 0) {
+        stickyBar.classList.add('hidden');
+        return;
+    }
+
+    const panelTop = panelBody.getBoundingClientRect().top;
+    let activeFolderName = null;
+
+    for (const row of allFolderRows) {
+        const rowRect = row.getBoundingClientRect();
+
+        // フォルダー行の上端がパネル上端よりも上にある（＝スクロールして上に隠れた/通り過ぎた）
+        if (rowRect.top < panelTop + 10) {
+            const treeNode = row.closest('.tree-node');
+            if (treeNode) {
+                // サブフォルダーの場合: そのフォルダーノード（配下の楽曲一覧）がまだ画面表示領域に残っているか
+                const nodeRect = treeNode.getBoundingClientRect();
+                if (nodeRect.bottom > panelTop + 30) {
+                    const label = row.querySelector('.row-label');
+                    if (label) {
+                        activeFolderName = label.textContent.trim();
+                    }
+                }
+            } else if (row.classList.contains('root-folder-row')) {
+                // ルートフォルダー行の場合
+                const label = row.querySelector('.row-label');
+                if (label) {
+                    activeFolderName = label.textContent.trim();
+                }
+            }
+        }
+    }
+
+    if (activeFolderName) {
+        stickyName.textContent = activeFolderName;
+        stickyBar.classList.remove('hidden');
+    } else {
+        stickyBar.classList.add('hidden');
+    }
+}
+
 function initFileTreeInteraction() {
     if (fileTreeContainer.dataset.interactionBound) return;
     fileTreeContainer.dataset.interactionBound = '1';
+
+    const panelBody = document.getElementById('tree-panel-body');
+    if (panelBody) {
+        panelBody.addEventListener('scroll', updateStickyFolderHeader, { passive: true });
+    }
 
     fileTreeContainer.addEventListener('click', (e) => {
         if (e.target.closest('.checkbox-container')) return;
@@ -717,6 +772,7 @@ function initFileTreeInteraction() {
 
         if (row.classList.contains('folder-row')) {
             toggleFolderRow(row);
+            setTimeout(updateStickyFolderHeader, 50);
         } else if (row.classList.contains('file-row')) {
             const node = fileByPath.get(row.dataset.path);
             if (node) {
@@ -1033,6 +1089,7 @@ function renderFileTree(items) {
 
     // 現在再生中の行をハイライト
     highlightPlayingRow();
+    setTimeout(updateStickyFolderHeader, 0);
 }
 
 // 再生中のファイル行のハイライト

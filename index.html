@@ -164,7 +164,16 @@
 
             <!-- スワイプで出現するファイルリストパネル -->
             <div id="file-tree-panel" class="file-tree-panel">
-                <div class="panel-body">
+                <!-- スクロール時に通り過ぎたフォルダー名を最上部に固定表示するバー -->
+                <div id="sticky-folder-bar" class="sticky-folder-bar hidden">
+                    <div class="row-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <span id="sticky-folder-name" class="sticky-folder-name"></span>
+                </div>
+                <div class="panel-body" id="tree-panel-body">
                     <div id="file-tree-container">
                         <!-- ここにツリー表示がJSで挿入される -->
                         <div class="empty-tree-message">

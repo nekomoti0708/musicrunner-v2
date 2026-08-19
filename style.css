@@ -517,6 +517,40 @@ input[type="range"]::-webkit-slider-thumb:active {
     height: 42px;
 }
 
+/* 固定フォルダー表示バー */
+.sticky-folder-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background-color: #1a132c;
+    border-bottom: 1px solid #322650;
+    color: #cbbffc;
+    font-size: 0.95rem;
+    font-weight: 600;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    z-index: 50;
+    flex-shrink: 0;
+}
+
+.sticky-folder-bar.hidden {
+    display: none !important;
+}
+
+.sticky-folder-bar .row-icon {
+    color: #a899e6;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+.sticky-folder-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* -------------------------------------------------------------
    4. ファイルツリーのスタイリング
    ------------------------------------------------------------- */
