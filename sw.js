@@ -8,7 +8,7 @@ const ASSETS_TO_CACHE = [
   'style.css',
   'main.js',
   'manifest.json',
-  // Icons
+  'audio-presets.js',
   'icons/icon_192_1779500783783.png',
   'icons/icon_512_1779500897773.png',
 ];
