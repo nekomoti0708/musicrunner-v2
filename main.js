@@ -239,6 +239,17 @@ window.addEventListener('DOMContentLoaded', async () => {
         console.warn('前回フォルダー情報の復元に失敗:', e);
     }
 
+    // 保存された音量を復元
+    const savedVolume = localStorage.getItem('musicrunner_volume');
+    if (savedVolume !== null) {
+        const vol = parseFloat(savedVolume);
+        volumeSlider.value = vol;
+        mainVideo.volume = vol;
+        if (volumeValue) {
+            volumeValue.textContent = `${Math.round(vol * 100)}%`;
+        }
+    }
+
     initEventListeners();
     initFileTreeInteraction();
     initSwipeGestures();
@@ -304,6 +315,7 @@ function initEventListeners() {
         if (volumeValue) {
             volumeValue.textContent = `${Math.round(volumeSlider.value * 100)}%`;
         }
+        localStorage.setItem('musicrunner_volume', volumeSlider.value);
     });
 
     setupMediaSession();
@@ -1656,6 +1668,9 @@ function initAudioEffects() {
         window.addEventListener('resize', resizeVisualizer);
         drawVisualizer();
     }
+
+    // 初期化直後にUIスライダー（または復元された設定）の値をエフェクトノードに反映
+    updateAudioEffects();
 }
 
 function resizeVisualizer() {
@@ -1824,6 +1839,51 @@ function applyEffectPreset(presetId) {
     document.getElementById('val-reverb').textContent = p.rev + ' %';
     
     updateAudioEffects();
+    saveAudioSettings();
+}
+
+const AUDIO_SETTINGS_KEY = 'musicrunner_audio_settings';
+
+function saveAudioSettings() {
+    const presetSelect = document.getElementById('effect-preset');
+    if (!presetSelect) return;
+    const settings = {
+        preset: presetSelect.value,
+        bass: parseFloat(document.getElementById('slider-bass').value),
+        treble: parseFloat(document.getElementById('slider-treble').value),
+        dist: parseFloat(document.getElementById('slider-distortion').value),
+        rev: parseFloat(document.getElementById('slider-reverb').value)
+    };
+    try {
+        localStorage.setItem(AUDIO_SETTINGS_KEY, JSON.stringify(settings));
+    } catch (e) {
+        console.warn('Failed to save audio settings:', e);
+    }
+}
+
+function loadAudioSettings() {
+    try {
+        const raw = localStorage.getItem(AUDIO_SETTINGS_KEY);
+        if (!raw) return;
+        const settings = JSON.parse(raw);
+
+        document.getElementById('slider-bass').value = settings.bass ?? 0;
+        document.getElementById('slider-treble').value = settings.treble ?? 0;
+        document.getElementById('slider-distortion').value = settings.dist ?? 0;
+        document.getElementById('slider-reverb').value = settings.rev ?? 0;
+
+        document.getElementById('val-bass').textContent = (settings.bass ?? 0) + ' dB';
+        document.getElementById('val-treble').textContent = (settings.treble ?? 0) + ' dB';
+        document.getElementById('val-distortion').textContent = (settings.dist ?? 0) + ' %';
+        document.getElementById('val-reverb').textContent = (settings.rev ?? 0) + ' %';
+
+        const presetSelect = document.getElementById('effect-preset');
+        if (presetSelect) {
+            presetSelect.value = settings.preset ?? 'normal';
+        }
+    } catch (e) {
+        console.warn('Failed to load audio settings:', e);
+    }
 }
 
 // --- エフェクトUI のイベントリスナー設定 ---
@@ -1861,12 +1921,15 @@ function initEffectsUI() {
             val.textContent = slider.value + unit;
             presetSelect.value = 'custom';
             updateAudioEffects();
+            saveAudioSettings();
         });
     });
 
     presetSelect.addEventListener('change', (e) => {
         if (e.target.value !== 'custom') {
             applyEffectPreset(e.target.value);
+        } else {
+            saveAudioSettings();
         }
     });
 
@@ -1909,4 +1972,7 @@ function initEffectsUI() {
             effectsPanel.style.transform = 'translateX(0)';
         }
     });
+
+    // 保存されていたエフェクト設定をUIに復元
+    loadAudioSettings();
 }
