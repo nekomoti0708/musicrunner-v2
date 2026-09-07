@@ -128,6 +128,7 @@ let dragOverRow = null;
 let treeDragJustEnded = false;
 let touchDragState = null;
 let touchAutoScrollRaf = 0;
+let touchInertiaRaf = 0;
 const TOUCH_DRAG_DELAY = 400;
 const TOUCH_DRAG_CANCEL_DISTANCE = 24;
 
@@ -1092,6 +1093,8 @@ function initFileTreeInteraction() {
             startX: e.clientX,
             startY: e.clientY,
             lastY: e.clientY,
+            lastMoveTime: performance.now(),
+            scrollVelocity: 0,
             timer: setTimeout(() => beginTouchTreeDrag(), TOUCH_DRAG_DELAY),
             active: false,
             canceled: false,
@@ -1102,23 +1105,27 @@ function initFileTreeInteraction() {
 
     fileTreeContainer.addEventListener('pointermove', (e) => {
         if (!touchDragState || touchDragState.pointerId !== e.pointerId) return;
+        const now = performance.now();
         const distance = Math.hypot(
             e.clientX - touchDragState.startX,
             e.clientY - touchDragState.startY
         );
+        const deltaY = e.clientY - touchDragState.lastY;
+        const elapsed = Math.max(1, now - touchDragState.lastMoveTime);
+        touchDragState.lastY = e.clientY;
+        touchDragState.lastMoveTime = now;
+
         if (!touchDragState.active) {
-            const panelBody = document.getElementById('tree-panel-body');
-            if (panelBody && e.clientY !== touchDragState.lastY) {
-                panelBody.scrollTop -= e.clientY - touchDragState.lastY;
-            }
-            touchDragState.lastY = e.clientY;
             if (distance > TOUCH_DRAG_CANCEL_DISTANCE) {
                 clearTimeout(touchDragState.timer);
                 touchDragState.canceled = true;
             }
+            e.preventDefault();
+            const panelBody = document.getElementById('tree-panel-body');
+            if (panelBody) panelBody.scrollTop -= deltaY;
+            touchDragState.scrollVelocity = (-deltaY / elapsed) * 16;
             return;
         }
-        if (!touchDragState.active) return;
 
         e.preventDefault();
         touchDragState.clientX = e.clientX;
@@ -1143,11 +1150,21 @@ function initFileTreeInteraction() {
                 clearTreeDragState();
             }
         } else {
-            cancelTouchTreeDrag();
+            if (!state.active) {
+                startTouchInertia(state.scrollVelocity);
+                finishTouchTreeGesture();
+            } else {
+                clearTreeDragState();
+            }
         }
     });
 
-    fileTreeContainer.addEventListener('pointercancel', cancelTouchTreeDrag);
+    fileTreeContainer.addEventListener('pointercancel', (e) => {
+        if (touchDragState && !touchDragState.active) {
+            startTouchInertia(touchDragState.scrollVelocity);
+        }
+        cancelTouchTreeDrag();
+    });
 
     fileTreeContainer.addEventListener('dragstart', (e) => {
         const row = e.target.closest('.tree-row');
@@ -1193,6 +1210,32 @@ function beginTouchTreeDrag() {
         touchDragState.row.setPointerCapture(touchDragState.pointerId);
     } catch {}
     if (navigator.vibrate) navigator.vibrate(30);
+}
+
+function startTouchInertia(initialVelocity) {
+    cancelAnimationFrame(touchInertiaRaf);
+    let velocity = Math.max(-24, Math.min(24, initialVelocity || 0));
+    if (Math.abs(velocity) < 0.2) return;
+    const panelBody = document.getElementById('tree-panel-body');
+    if (!panelBody) return;
+
+    const step = () => {
+        panelBody.scrollTop += velocity;
+        velocity *= 0.92;
+        if (Math.abs(velocity) >= 0.2) {
+            touchInertiaRaf = requestAnimationFrame(step);
+        } else {
+            touchInertiaRaf = 0;
+        }
+    };
+    touchInertiaRaf = requestAnimationFrame(step);
+}
+
+function finishTouchTreeGesture() {
+    if (!touchDragState) return;
+    touchDragState.row.draggable = touchDragState.nativeDraggable;
+    clearTimeout(touchDragState.timer);
+    touchDragState = null;
 }
 
 function updateTouchAutoScroll() {
@@ -1261,6 +1304,8 @@ function cancelTouchTreeDrag() {
 
 function clearTreeDragState() {
     stopTouchAutoScroll();
+    cancelAnimationFrame(touchInertiaRaf);
+    touchInertiaRaf = 0;
     if (touchDragState?.row?.hasPointerCapture?.(touchDragState.pointerId)) {
         try {
             touchDragState.row.releasePointerCapture(touchDragState.pointerId);
