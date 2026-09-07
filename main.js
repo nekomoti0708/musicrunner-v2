@@ -1215,7 +1215,7 @@ function beginTouchTreeDrag() {
 function startTouchInertia(initialVelocity) {
     cancelAnimationFrame(touchInertiaRaf);
     let velocity = Math.max(-24, Math.min(24, initialVelocity || 0));
-    velocity *= 1.5;
+    velocity *= 3;
     if (Math.abs(velocity) < 0.2) return;
     const panelBody = document.getElementById('tree-panel-body');
     if (!panelBody) return;
