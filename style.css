@@ -454,11 +454,13 @@ input[type="range"]::-webkit-slider-thumb:active {
     display: flex;
     flex-direction: column;
     transform: translateY(-100%);
+    pointer-events: none;
     transition: transform 0.35s cubic-bezier(0.19, 1, 0.22, 1);
 }
 
 .file-tree-panel.open {
     transform: translateY(0);
+    pointer-events: auto;
 }
 
 .panel-header {
