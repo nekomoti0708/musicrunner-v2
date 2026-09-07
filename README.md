@@ -97,7 +97,8 @@ Music Runner v2 は、ブラウザ上で動作する高機能でプレミアム�
 - 再生画面下部の設定アイコンから専用設定パネルを開けます。
 - ビジュアライザーの表示・非表示を切り替えられます。
 - 縦棒の `Vertical Bars` と、細い発光線・透明な下側の塗りを組み合わせた `Aurora Line` を切り替えられます。
-- `Violet Pulse`, `Aqua Signal`, `Sunset Heat`, `Mono Light` のカラーパレットを選べます。
+- 音の波を上下に広げた半透明のリボンと発光ラインを組み合わせた `Nebula Ribbon` も選べます。
+- `Violet Pulse`, `Aqua Signal`, `Sunset Heat`, `Mono Light`, `Cosmic Blue`, `Mint Glow`, `Ember Rose` のカラーパレットを選べます。
 - 感度・立ち上がり・戻り速度は、1本の「反応」スライダーで連動調整できます。
 - 反応を下げると穏やかで控えめに、上げると音の変化へ素早く強く反応します。
 - ビジュアライザー設定は LocalStorage に保存し、次回起動時に復元します。

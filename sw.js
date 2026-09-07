@@ -40,27 +40,56 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
 
-  event.respondWith(
-    fetch(event.request).then(networkResponse => {
-      // ネットワーク成功 → キャッシュを更新して返す
-      if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseToCache);
-        });
-      }
-      return networkResponse;
-    }).catch(() => {
-      // ネットワーク失敗 → キャッシュにフォールバック
-      return caches.match(event.request).then(cachedResponse => {
+  const requestUrl = new URL(event.request.url);
+  if (!['http:', 'https:'].includes(requestUrl.protocol) || requestUrl.origin !== self.location.origin) {
+    return;
+  }
+
+  // モバイル通信かどうか判定（Chrome Network Information API）
+  const isCellular = navigator.connection && navigator.connection.type === 'cellular';
+
+  if (isCellular) {
+    // モバイル通信 → キャッシュ優先（通信量を節約）
+    event.respondWith(
+      caches.match(event.request).then(cachedResponse => {
         if (cachedResponse) {
           return cachedResponse;
         }
-        if (event.request.mode === 'navigate') {
-          return caches.match(OFFLINE_URL);
+        // キャッシュになければネットワークへ
+        return fetch(event.request).then(networkResponse => {
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache)).catch(() => {});
+          }
+          return networkResponse;
+        }).catch(() => {
+          if (event.request.mode === 'navigate') {
+            return caches.match(OFFLINE_URL);
+          }
+          return undefined;
+        });
+      })
+    );
+  } else {
+    // WiFi / 有線 → ネットワーク優先（常に最新を取得）
+    event.respondWith(
+      fetch(event.request).then(networkResponse => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache)).catch(() => {});
         }
-        return undefined;
-      });
-    })
-  );
+        return networkResponse;
+      }).catch(() => {
+        return caches.match(event.request).then(cachedResponse => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          if (event.request.mode === 'navigate') {
+            return caches.match(OFFLINE_URL);
+          }
+          return undefined;
+        });
+      })
+    );
+  }
 });

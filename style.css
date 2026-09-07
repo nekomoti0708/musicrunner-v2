@@ -489,6 +489,11 @@ input[type="range"]::-webkit-slider-thumb:active {
     -webkit-overflow-scrolling: touch;
 }
 
+.panel-body.drag-scroll-locked {
+    overflow-y: hidden;
+    touch-action: none;
+}
+
 /* エフェクトパネル専用のスタイル（右から左へスライド） */
 #effects-panel {
     top: 0;
@@ -708,7 +713,7 @@ input[type="range"]::-webkit-slider-thumb:active {
 
 .tree-row[draggable="true"] {
     cursor: grab;
-    touch-action: pan-y;
+    touch-action: none;
 }
 
 .tree-row.touch-dragging {

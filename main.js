@@ -127,6 +127,9 @@ let draggedTreePath = null;
 let dragOverRow = null;
 let treeDragJustEnded = false;
 let touchDragState = null;
+let touchAutoScrollRaf = 0;
+const TOUCH_DRAG_DELAY = 400;
+const TOUCH_DRAG_CANCEL_DISTANCE = 24;
 
 // 状態記憶用 (LocalStorage)
 let currentState = {
@@ -1088,8 +1091,10 @@ function initFileTreeInteraction() {
             row,
             startX: e.clientX,
             startY: e.clientY,
-            timer: setTimeout(() => beginTouchTreeDrag(), 450),
+            lastY: e.clientY,
+            timer: setTimeout(() => beginTouchTreeDrag(), TOUCH_DRAG_DELAY),
             active: false,
+            canceled: false,
             nativeDraggable: row.draggable
         };
         row.draggable = false;
@@ -1101,15 +1106,26 @@ function initFileTreeInteraction() {
             e.clientX - touchDragState.startX,
             e.clientY - touchDragState.startY
         );
-        if (!touchDragState.active && distance > 14) {
-            cancelTouchTreeDrag();
+        if (!touchDragState.active) {
+            const panelBody = document.getElementById('tree-panel-body');
+            if (panelBody && e.clientY !== touchDragState.lastY) {
+                panelBody.scrollTop -= e.clientY - touchDragState.lastY;
+            }
+            touchDragState.lastY = e.clientY;
+            if (distance > TOUCH_DRAG_CANCEL_DISTANCE) {
+                clearTimeout(touchDragState.timer);
+                touchDragState.canceled = true;
+            }
             return;
         }
         if (!touchDragState.active) return;
 
         e.preventDefault();
+        touchDragState.clientX = e.clientX;
+        touchDragState.clientY = e.clientY;
         const row = document.elementFromPoint(e.clientX, e.clientY)?.closest('.tree-row');
         updateTouchDragTarget(row, e.clientY);
+        updateTouchAutoScroll();
     });
 
     fileTreeContainer.addEventListener('pointerup', async (e) => {
@@ -1117,10 +1133,15 @@ function initFileTreeInteraction() {
         const state = touchDragState;
         const targetRow = document.elementFromPoint(e.clientX, e.clientY)?.closest('.tree-row');
         if (state.active && targetRow && targetRow.dataset.path !== state.row.dataset.path) {
-            await moveTreeNode(state.row.dataset.path, targetRow.dataset.path, {
-                insertAfter: shouldInsertAfter(targetRow, e.clientY)
-            });
-            clearTreeDragState();
+            try {
+                await moveTreeNode(state.row.dataset.path, targetRow.dataset.path, {
+                    insertAfter: shouldInsertAfter(targetRow, e.clientY)
+                });
+            } catch (err) {
+                console.error('Touch drag move failed:', err);
+            } finally {
+                clearTreeDragState();
+            }
         } else {
             cancelTouchTreeDrag();
         }
@@ -1160,14 +1181,55 @@ function initFileTreeInteraction() {
 }
 
 function beginTouchTreeDrag() {
-    if (!touchDragState) return;
+    if (!touchDragState || touchDragState.canceled) return;
     touchDragState.active = true;
     draggedTreePath = touchDragState.row.dataset.path;
     touchDragState.row.classList.add('sortable-dragging', 'touch-dragging');
+    const panelBody = document.getElementById('tree-panel-body');
+    if (panelBody) panelBody.classList.add('drag-scroll-locked');
+    touchDragState.clientX = touchDragState.startX;
+    touchDragState.clientY = touchDragState.startY;
     try {
         touchDragState.row.setPointerCapture(touchDragState.pointerId);
     } catch {}
     if (navigator.vibrate) navigator.vibrate(30);
+}
+
+function updateTouchAutoScroll() {
+    if (!touchDragState?.active) return;
+    if (!touchAutoScrollRaf) {
+        touchAutoScrollRaf = requestAnimationFrame(runTouchAutoScroll);
+    }
+}
+
+function runTouchAutoScroll() {
+    touchAutoScrollRaf = 0;
+    if (!touchDragState?.active) return;
+
+    const panelBody = document.getElementById('tree-panel-body');
+    if (!panelBody) return;
+    const rect = panelBody.getBoundingClientRect();
+    const edgeSize = 60;
+    const pointerY = touchDragState.clientY;
+    let scrollDelta = 0;
+    if (pointerY < rect.top + edgeSize) {
+        scrollDelta = -Math.ceil((rect.top + edgeSize - pointerY) / 6);
+    } else if (pointerY > rect.bottom - edgeSize) {
+        scrollDelta = Math.ceil((pointerY - (rect.bottom - edgeSize)) / 6);
+    }
+
+    if (scrollDelta !== 0) {
+        const previousScrollTop = panelBody.scrollTop;
+        panelBody.scrollTop += Math.max(-18, Math.min(18, scrollDelta));
+        if (panelBody.scrollTop !== previousScrollTop) {
+            const row = document.elementFromPoint(
+                touchDragState.clientX,
+                touchDragState.clientY
+            )?.closest('.tree-row');
+            updateTouchDragTarget(row, touchDragState.clientY);
+        }
+        touchAutoScrollRaf = requestAnimationFrame(runTouchAutoScroll);
+    }
 }
 
 function updateTouchDragTarget(row, clientY) {
@@ -1192,11 +1254,18 @@ function cancelTouchTreeDrag() {
     if (!touchDragState) return;
     touchDragState.row.draggable = touchDragState.nativeDraggable;
     clearTimeout(touchDragState.timer);
+    stopTouchAutoScroll();
     touchDragState = null;
     if (draggedTreePath) clearTreeDragState();
 }
 
 function clearTreeDragState() {
+    stopTouchAutoScroll();
+    if (touchDragState?.row?.hasPointerCapture?.(touchDragState.pointerId)) {
+        try {
+            touchDragState.row.releasePointerCapture(touchDragState.pointerId);
+        } catch {}
+    }
     document.querySelectorAll('.sortable-dragging, .drag-over').forEach(row => {
         row.classList.remove('sortable-dragging', 'touch-dragging', 'drag-over', 'drag-over-before', 'drag-over-after');
     });
@@ -1211,6 +1280,14 @@ function clearTreeDragState() {
     setTimeout(() => {
         treeDragJustEnded = false;
     }, 0);
+}
+
+function stopTouchAutoScroll() {
+    if (touchAutoScrollRaf) {
+        cancelAnimationFrame(touchAutoScrollRaf);
+        touchAutoScrollRaf = 0;
+    }
+    document.getElementById('tree-panel-body')?.classList.remove('drag-scroll-locked');
 }
 
 function shouldInsertAfter(row, clientY) {
@@ -2025,7 +2102,10 @@ const visualizerPalettes = {
     violet: ['203, 191, 252', '168, 153, 230', '100, 82, 180'],
     aqua: ['190, 255, 247', '64, 211, 198', '23, 125, 145'],
     sunset: ['255, 224, 173', '255, 145, 94', '190, 65, 92'],
-    mono: ['255, 255, 255', '190, 190, 205', '100, 100, 120']
+    mono: ['255, 255, 255', '190, 190, 205', '100, 100, 120'],
+    cosmic: ['210, 235, 255', '92, 157, 255', '44, 65, 156'],
+    mint: ['225, 255, 225', '108, 230, 177', '30, 132, 111'],
+    ember: ['255, 220, 210', '244, 105, 119', '135, 35, 75']
 };
 
 function initAudioEffects() {
@@ -2176,6 +2256,10 @@ function drawVisualizer() {
         drawAuroraVisualizer(bars, w, h, palette);
         return;
     }
+    if (visualizerSettings.mode === 'nebula') {
+        drawNebulaVisualizer(bars, w, h, palette);
+        return;
+    }
 
     // 最大高さを全体の45%に制限
     const maxBarHeight = h * 0.45;
@@ -2271,6 +2355,65 @@ function drawAuroraVisualizer(values, width, height, palette) {
     visualizerCtx.lineWidth = 1.5;
     visualizerCtx.shadowColor = `rgba(${palette[1]}, 0.85)`;
     visualizerCtx.shadowBlur = 14;
+    visualizerCtx.stroke();
+    visualizerCtx.restore();
+}
+
+function traceSmoothVisualizerPath(points) {
+    visualizerCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        const previous = points[i - 1];
+        const current = points[i];
+        const midpointX = (previous.x + current.x) / 2;
+        const midpointY = (previous.y + current.y) / 2;
+        visualizerCtx.quadraticCurveTo(previous.x, previous.y, midpointX, midpointY);
+    }
+    const lastPoint = points[points.length - 1];
+    visualizerCtx.quadraticCurveTo(lastPoint.x, lastPoint.y, lastPoint.x, lastPoint.y);
+}
+
+function drawNebulaVisualizer(values, width, height, palette) {
+    const centerY = height * 0.62;
+    const amplitude = height * 0.28;
+    const peak = Math.max(...values, 1);
+    const upperPoints = values.map((value, index) => ({
+        x: values.length === 1 ? width / 2 : (index / (values.length - 1)) * width,
+        y: centerY - (value / peak) * amplitude
+    }));
+    const lowerPoints = values.map((value, index) => ({
+        x: values.length === 1 ? width / 2 : (index / (values.length - 1)) * width,
+        y: centerY + (value / peak) * amplitude * 0.42
+    }));
+
+    const ribbon = visualizerCtx.createLinearGradient(0, centerY - amplitude, 0, centerY + amplitude);
+    ribbon.addColorStop(0, `rgba(${palette[0]}, 0.48)`);
+    ribbon.addColorStop(0.42, `rgba(${palette[1]}, 0.3)`);
+    ribbon.addColorStop(1, `rgba(${palette[2]}, 0.02)`);
+
+    visualizerCtx.save();
+    visualizerCtx.beginPath();
+    traceSmoothVisualizerPath(upperPoints);
+    for (let i = lowerPoints.length - 1; i >= 0; i--) {
+        const point = lowerPoints[i];
+        visualizerCtx.lineTo(point.x, point.y);
+    }
+    visualizerCtx.closePath();
+    visualizerCtx.fillStyle = ribbon;
+    visualizerCtx.fill();
+
+    visualizerCtx.beginPath();
+    traceSmoothVisualizerPath(upperPoints);
+    visualizerCtx.strokeStyle = `rgba(${palette[0]}, 0.88)`;
+    visualizerCtx.lineWidth = 1.25;
+    visualizerCtx.shadowColor = `rgba(${palette[1]}, 0.9)`;
+    visualizerCtx.shadowBlur = 18;
+    visualizerCtx.stroke();
+
+    visualizerCtx.beginPath();
+    traceSmoothVisualizerPath(lowerPoints);
+    visualizerCtx.strokeStyle = `rgba(${palette[2]}, 0.32)`;
+    visualizerCtx.lineWidth = 1;
+    visualizerCtx.shadowBlur = 12;
     visualizerCtx.stroke();
     visualizerCtx.restore();
 }
