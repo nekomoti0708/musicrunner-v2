@@ -118,9 +118,15 @@ let currentTreeItems = [];    // ファイルツリー（ルート一括チェ�
 let fileByPath = new Map();   // path → file node（クリック応答を高速化）
 let folderByPath = new Map(); // path → folder node
 let saveStateRaf = 0;
+let stateSavePromise = Promise.resolve();
 let bulkRefreshRaf = 0;
 let pendingBulkRefreshFolders = null;
 let cachedFolderFiles = null; // fallback入力からキャッシュしたファイル群（同一セッションのみ）
+const MUSIC_ORDER_FILE = 'musics.json';
+let draggedTreePath = null;
+let dragOverRow = null;
+let treeDragJustEnded = false;
+let touchDragState = null;
 
 // 状態記憶用 (LocalStorage)
 let currentState = {
@@ -254,6 +260,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     initFileTreeInteraction();
     initSwipeGestures();
     initEffectsUI();
+    initVisualizerSettingsUI();
 // Register Service Worker for PWA
 if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js')
@@ -464,7 +471,11 @@ async function handleOpenFilePicker() {
 async function openFolderPicker() {
     if (window.showDirectoryPicker) {
         try {
-            const handle = await window.showDirectoryPicker();
+            const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            if (!(await verifyPermission(handle, true))) {
+                alert('フォルダーの読み書き権限が必要です。');
+                return;
+            }
             await loadDirectory(handle);
             return;
         } catch (e) {
@@ -522,7 +533,7 @@ async function handleOpenLastDirectory() {
     try {
         const lastHandle = await getVal(LAST_DIR_KEY);
         if (lastHandle) {
-            const granted = await verifyPermission(lastHandle, false);
+            const granted = await verifyPermission(lastHandle, true);
             if (granted) {
                 await loadDirectory(lastHandle);
                 return;
@@ -539,7 +550,11 @@ async function handleOpenLastDirectory() {
     if (meta) {
         if (window.showDirectoryPicker) {
             try {
-                const handle = await window.showDirectoryPicker();
+                const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                if (!(await verifyPermission(handle, true))) {
+                    alert('フォルダーの読み書き権限が必要です。');
+                    return;
+                }
                 await loadDirectory(handle);
                 return;
             } catch (e) {
@@ -573,16 +588,8 @@ async function loadDirectory(dirHandle) {
         cachedFolderFiles = null;
         await updateLastFolderButton();
 
-        // 状態記憶用のキーをフォルダ名から生成
-        const stateKey = `musicrunner_state_${dirHandle.name}`;
-        const savedState = localStorage.getItem(stateKey);
-        if (savedState) {
-            currentState = JSON.parse(savedState);
-            if (!currentState.openFolders) currentState.openFolders = {};
-            if (!currentState.checkedFiles) currentState.checkedFiles = {};
-        } else {
-            currentState = { openFolders: {}, checkedFiles: {} };
-        }
+        // FSA で開いたフォルダーの状態は各階層の musics.json から復元する
+        currentState = { openFolders: {}, checkedFiles: {} };
 
         // フォルダのトラバース
         rootItems = await traverseDirectory(dirHandle);
@@ -623,7 +630,8 @@ async function traverseDirectory(dirHandle, relativePath = '') {
                     kind: 'file',
                     name: entry.name,
                     path: entryPath,
-                    handle: entry
+                    handle: entry,
+                    parentHandle: dirHandle
                 };
                 items.push(fileNode);
             }
@@ -636,6 +644,7 @@ async function traverseDirectory(dirHandle, relativePath = '') {
                     name: entry.name,
                     path: entryPath,
                     handle: entry,
+                    parentHandle: dirHandle,
                     children: subItems
                 });
             }
@@ -645,12 +654,82 @@ async function traverseDirectory(dirHandle, relativePath = '') {
             await yieldToUI();
         }
     }
-    // フォルダー → ファイルの順で、それぞれa-z
-    items.sort((a, b) => {
+    const order = await readFolderOrder(dirHandle);
+    mergeFolderState(order);
+    const sortedItems = sortTreeItems(items, order);
+    if (!order) await writeFolderOrder(dirHandle, sortedItems, relativePath || null);
+    return sortedItems;
+}
+
+function mergeFolderState(order) {
+    if (!order) return;
+    Object.assign(currentState.checkedFiles, order.checkedFiles || {});
+    Object.assign(currentState.openFolders, order.openFolders || {});
+    if (order.lastPlayedFile) currentState.lastPlayedFile = order.lastPlayedFile;
+    if (typeof order.lastPlayedTime === 'number') currentState.lastPlayedTime = order.lastPlayedTime;
+}
+
+function sortTreeItems(items, order) {
+    const orderMap = new Map((order?.items || []).map(item => [item.name, item.index]));
+    return items.sort((a, b) => {
+        const aIndex = orderMap.get(a.name);
+        const bIndex = orderMap.get(b.name);
+        if (aIndex !== undefined || bIndex !== undefined) {
+            if (aIndex === undefined) return 1;
+            if (bIndex === undefined) return -1;
+            if (aIndex !== bIndex) return aIndex - bIndex;
+        }
         if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
         return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
     });
-    return items;
+}
+
+async function readFolderOrder(dirHandle) {
+    if (!dirHandle?.getFileHandle) return null;
+    try {
+        const orderHandle = await dirHandle.getFileHandle(MUSIC_ORDER_FILE);
+        const file = await orderHandle.getFile();
+        const parsed = JSON.parse(await file.text());
+        return Array.isArray(parsed.items) ? parsed : null;
+    } catch (err) {
+        if (err.name !== 'NotFoundError' && err.name !== 'TypeMismatchError') {
+            console.warn('フォルダー順序の読み込みに失敗:', err);
+        }
+        return null;
+    }
+}
+
+function getDirectState(source, folderPath, kind) {
+    const result = {};
+    for (const [path, value] of Object.entries(source || {})) {
+        const parentPath = getParentFolderPath(path);
+        if (parentPath === folderPath && (kind !== 'file' || value === true)) {
+            result[path] = value;
+        }
+    }
+    return result;
+}
+
+async function writeFolderOrder(dirHandle, items, folderPath = null, includePlayback = false) {
+    if (!dirHandle?.getFileHandle) return;
+    try {
+        const orderHandle = await dirHandle.getFileHandle(MUSIC_ORDER_FILE, { create: true });
+        const writable = await orderHandle.createWritable();
+        const metadata = {
+            version: 2,
+            items: items.map((item, index) => ({ name: item.name, kind: item.kind, index })),
+            checkedFiles: getDirectState(currentState.checkedFiles, folderPath, 'file'),
+            openFolders: getDirectState(currentState.openFolders, folderPath, 'folder')
+        };
+        if (includePlayback) {
+            metadata.lastPlayedFile = currentState.lastPlayedFile || null;
+            metadata.lastPlayedTime = currentState.lastPlayedTime || 0;
+        }
+        await writable.write(JSON.stringify(metadata, null, 2));
+        await writable.close();
+    } catch (err) {
+        console.warn('フォルダー順序の保存に失敗:', err);
+    }
 }
 
 // ツリー表示順（深さ優先）でファイル一覧を生成 — 再生順と一覧順を一致させる
@@ -679,8 +758,27 @@ function updatePlaylistQueue() {
 function saveCurrentState() {
     const folderName = activeFolderName || directoryHandle?.name;
     if (!folderName) return;
+    if (directoryHandle) {
+        stateSavePromise = stateSavePromise.then(() => saveFolderMetadata()).catch(err => {
+            console.warn('musics.json の状態保存に失敗:', err);
+        });
+        return;
+    }
     const stateKey = `musicrunner_state_${folderName}`;
     localStorage.setItem(stateKey, JSON.stringify(currentState));
+}
+
+async function saveFolderMetadata() {
+    await writeFolderOrder(directoryHandle, currentTreeItems, null, true);
+    async function saveChildren(items) {
+        for (const item of items) {
+            if (item.kind === 'directory') {
+                await writeFolderOrder(item.handle, item.children || [], item.path);
+                await saveChildren(item.children || []);
+            }
+        }
+    }
+    await saveChildren(currentTreeItems);
 }
 
 function scheduleSaveCurrentState() {
@@ -705,6 +803,178 @@ function rebuildTreeIndex(items) {
         }
     }
     walk(items);
+}
+
+function getChildrenForPath(path) {
+    if (!path) return currentTreeItems;
+    return folderByPath.get(path)?.children || null;
+}
+
+function getFolderHandle(path) {
+    if (!path) return directoryHandle;
+    return folderByPath.get(path)?.handle || null;
+}
+
+function updateNodePaths(node, oldPrefix, newPrefix) {
+    const oldPath = node.path;
+    const nextPath = oldPath === oldPrefix
+        ? newPrefix
+        : `${newPrefix}${oldPath.substring(oldPrefix.length)}`;
+    if (currentState.lastPlayedFile === oldPath) {
+        currentState.lastPlayedFile = nextPath;
+    }
+    node.path = nextPath;
+
+    if (currentState.checkedFiles[oldPath] !== undefined) {
+        currentState.checkedFiles[nextPath] = currentState.checkedFiles[oldPath];
+        delete currentState.checkedFiles[oldPath];
+    }
+    if (currentState.openFolders[oldPath] !== undefined) {
+        currentState.openFolders[nextPath] = currentState.openFolders[oldPath];
+        delete currentState.openFolders[oldPath];
+    }
+
+    if (node.children) {
+        node.children.forEach(child => updateNodePaths(child, oldPrefix, newPrefix));
+    }
+}
+
+function isDescendantPath(path, possibleParent) {
+    if (!path || !possibleParent) return false;
+    return path === possibleParent || path.startsWith(`${possibleParent}/`);
+}
+
+async function copyFileHandle(sourceHandle, targetDirectoryHandle, name) {
+    const sourceFile = await sourceHandle.getFile();
+    const targetHandle = await targetDirectoryHandle.getFileHandle(name, { create: true });
+    const writable = await targetHandle.createWritable();
+    await writable.write(sourceFile);
+    await writable.close();
+}
+
+async function copyDirectoryHandle(sourceHandle, targetDirectoryHandle, name) {
+    const targetHandle = await targetDirectoryHandle.getDirectoryHandle(name, { create: true });
+    for await (const entry of sourceHandle.values()) {
+        if (entry.kind === 'file') {
+            await copyFileHandle(entry, targetHandle, entry.name);
+        } else if (entry.kind === 'directory') {
+            await copyDirectoryHandle(entry, targetHandle, entry.name);
+        }
+    }
+}
+
+async function moveHandleByCopy(sourceNode, targetDirectoryHandle) {
+    const sourceHandle = sourceNode.handle;
+    const sourceParentHandle = sourceNode.parentHandle;
+    if (!sourceHandle || !sourceParentHandle || !targetDirectoryHandle) return false;
+
+    if (sourceHandle.kind === 'file') {
+        await copyFileHandle(sourceHandle, targetDirectoryHandle, sourceNode.name);
+        await sourceParentHandle.removeEntry(sourceNode.name);
+    } else {
+        await copyDirectoryHandle(sourceHandle, targetDirectoryHandle, sourceNode.name);
+        await sourceParentHandle.removeEntry(sourceNode.name, { recursive: true });
+    }
+    return true;
+}
+
+async function refreshNodeHandles(node) {
+    if (!node.parentHandle) return;
+    if (node.kind === 'file') {
+        node.handle = await node.parentHandle.getFileHandle(node.name);
+        return;
+    }
+    node.handle = await node.parentHandle.getDirectoryHandle(node.name);
+    for (const child of node.children || []) {
+        child.parentHandle = node.handle;
+        await refreshNodeHandles(child);
+    }
+}
+
+async function moveTreeNode(sourcePath, targetPath, { insertAfter = false } = {}) {
+    const sourceNode = fileByPath.get(sourcePath) || folderByPath.get(sourcePath);
+    const targetNode = fileByPath.get(targetPath) || folderByPath.get(targetPath);
+    if (!sourceNode || !targetNode || sourceNode === targetNode) return;
+
+    const sourceParentPath = getParentFolderPath(sourcePath);
+    const targetParentPath = targetNode.kind === 'directory'
+        ? targetNode.path
+        : getParentFolderPath(targetPath);
+    if (sourceNode.kind === 'directory' && isDescendantPath(targetParentPath, sourcePath)) return;
+
+    const sourceChildren = getChildrenForPath(sourceParentPath);
+    const targetChildren = getChildrenForPath(targetParentPath);
+    if (!sourceChildren || !targetChildren) return;
+
+    const sourceIndex = sourceChildren.indexOf(sourceNode);
+    if (sourceIndex < 0) return;
+    const sameParent = sourceParentPath === targetParentPath;
+    let targetIndex = targetNode.kind === 'directory'
+        ? targetChildren.length
+        : targetChildren.indexOf(targetNode) + (insertAfter ? 1 : 0);
+    if (targetIndex < 0) targetIndex = targetChildren.length;
+
+    if (!sameParent && sourceNode.handle) {
+        const targetHandle = getFolderHandle(targetParentPath);
+        if (!targetHandle) return;
+        try {
+            if (typeof sourceNode.handle.move === 'function') {
+                await sourceNode.handle.move(sourceNode.name, targetHandle);
+            } else {
+                await moveHandleByCopy(sourceNode, targetHandle);
+            }
+        } catch (err) {
+            try {
+                await moveHandleByCopy(sourceNode, targetHandle);
+            } catch (copyErr) {
+                console.warn('ファイルの移動に失敗:', copyErr);
+                alert('ファイルを別フォルダーへ移動できませんでした。');
+                return;
+            }
+        }
+    }
+
+    const previousPositions = new Map(
+        Array.from(fileTreeContainer.querySelectorAll('.tree-row[data-path]')).map(row => [
+            row.dataset.path,
+            row.getBoundingClientRect().top
+        ])
+    );
+
+    sourceChildren.splice(sourceIndex, 1);
+    if (sameParent && sourceIndex < targetIndex) targetIndex--;
+    targetChildren.splice(targetIndex, 0, sourceNode);
+
+    if (!sameParent) {
+        const newPath = targetParentPath ? `${targetParentPath}/${sourceNode.name}` : sourceNode.name;
+        updateNodePaths(sourceNode, sourcePath, newPath);
+        sourceNode.parentHandle = getFolderHandle(targetParentPath);
+        if (sourceNode.handle) await refreshNodeHandles(sourceNode);
+    }
+
+    flatFiles = flattenTreeFiles(currentTreeItems);
+    updatePlaylistQueue();
+    renderFileTree(currentTreeItems);
+    animateTreeReorder(previousPositions);
+    scheduleSaveCurrentState();
+}
+
+function animateTreeReorder(previousPositions) {
+    const rows = Array.from(fileTreeContainer.querySelectorAll('.tree-row[data-path]'));
+    rows.forEach(row => {
+        const previousTop = previousPositions.get(row.dataset.path);
+        if (previousTop === undefined) return;
+        const deltaY = previousTop - row.getBoundingClientRect().top;
+        if (Math.abs(deltaY) < 1) return;
+        row.style.transition = 'none';
+        row.style.transform = `translateY(${deltaY}px)`;
+    });
+    requestAnimationFrame(() => {
+        rows.forEach(row => {
+            row.style.transition = '';
+            row.style.transform = '';
+        });
+    });
 }
 
 function getParentFolderPath(filePath) {
@@ -790,6 +1060,7 @@ function initFileTreeInteraction() {
     }
 
     fileTreeContainer.addEventListener('click', (e) => {
+        if (treeDragJustEnded) return;
         if (e.target.closest('.checkbox-container')) return;
 
         const row = e.target.closest('.tree-row');
@@ -806,6 +1077,146 @@ function initFileTreeInteraction() {
             }
         }
     });
+
+    fileTreeContainer.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' || e.button !== 0 || e.target.closest('.checkbox-container')) return;
+        const row = e.target.closest('.tree-row');
+        if (!row || row.dataset.rootBulk) return;
+
+        touchDragState = {
+            pointerId: e.pointerId,
+            row,
+            startX: e.clientX,
+            startY: e.clientY,
+            timer: setTimeout(() => beginTouchTreeDrag(), 450),
+            active: false,
+            nativeDraggable: row.draggable
+        };
+        row.draggable = false;
+    });
+
+    fileTreeContainer.addEventListener('pointermove', (e) => {
+        if (!touchDragState || touchDragState.pointerId !== e.pointerId) return;
+        const distance = Math.hypot(
+            e.clientX - touchDragState.startX,
+            e.clientY - touchDragState.startY
+        );
+        if (!touchDragState.active && distance > 14) {
+            cancelTouchTreeDrag();
+            return;
+        }
+        if (!touchDragState.active) return;
+
+        e.preventDefault();
+        const row = document.elementFromPoint(e.clientX, e.clientY)?.closest('.tree-row');
+        updateTouchDragTarget(row, e.clientY);
+    });
+
+    fileTreeContainer.addEventListener('pointerup', async (e) => {
+        if (!touchDragState || touchDragState.pointerId !== e.pointerId) return;
+        const state = touchDragState;
+        const targetRow = document.elementFromPoint(e.clientX, e.clientY)?.closest('.tree-row');
+        if (state.active && targetRow && targetRow.dataset.path !== state.row.dataset.path) {
+            await moveTreeNode(state.row.dataset.path, targetRow.dataset.path, {
+                insertAfter: shouldInsertAfter(targetRow, e.clientY)
+            });
+            clearTreeDragState();
+        } else {
+            cancelTouchTreeDrag();
+        }
+    });
+
+    fileTreeContainer.addEventListener('pointercancel', cancelTouchTreeDrag);
+
+    fileTreeContainer.addEventListener('dragstart', (e) => {
+        const row = e.target.closest('.tree-row');
+        if (!row || row.dataset.rootBulk) return;
+        draggedTreePath = row.dataset.path;
+        row.classList.add('sortable-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', draggedTreePath);
+    });
+
+    fileTreeContainer.addEventListener('dragover', (e) => {
+        const row = e.target.closest('.tree-row');
+        if (!draggedTreePath || !row || row.dataset.rootBulk || row.dataset.path === draggedTreePath) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        updateTouchDragTarget(row, e.clientY);
+    });
+
+    fileTreeContainer.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        const row = e.target.closest('.tree-row');
+        if (row && draggedTreePath && !row.dataset.rootBulk && row.dataset.path !== draggedTreePath) {
+            await moveTreeNode(draggedTreePath, row.dataset.path, {
+                insertAfter: shouldInsertAfter(row, e.clientY)
+            });
+        }
+        clearTreeDragState();
+    });
+
+    fileTreeContainer.addEventListener('dragend', clearTreeDragState);
+}
+
+function beginTouchTreeDrag() {
+    if (!touchDragState) return;
+    touchDragState.active = true;
+    draggedTreePath = touchDragState.row.dataset.path;
+    touchDragState.row.classList.add('sortable-dragging');
+    try {
+        touchDragState.row.setPointerCapture(touchDragState.pointerId);
+    } catch {}
+    if (navigator.vibrate) navigator.vibrate(30);
+}
+
+function updateTouchDragTarget(row, clientY) {
+    if (!draggedTreePath || !row || row.dataset.rootBulk || row.dataset.path === draggedTreePath) {
+        if (dragOverRow) {
+            dragOverRow.classList.remove('drag-over', 'drag-over-before', 'drag-over-after');
+        }
+        dragOverRow = null;
+        return;
+    }
+    if (dragOverRow && dragOverRow !== row) {
+        dragOverRow.classList.remove('drag-over', 'drag-over-before', 'drag-over-after');
+    }
+    dragOverRow = row;
+    dragOverRow.classList.remove('drag-over-before', 'drag-over-after');
+    dragOverRow.classList.add('drag-over');
+    if (row.classList.contains('folder-row')) return;
+    dragOverRow.classList.add(shouldInsertAfter(row, clientY) ? 'drag-over-after' : 'drag-over-before');
+}
+
+function cancelTouchTreeDrag() {
+    if (!touchDragState) return;
+    touchDragState.row.draggable = touchDragState.nativeDraggable;
+    clearTimeout(touchDragState.timer);
+    touchDragState = null;
+    if (draggedTreePath) clearTreeDragState();
+}
+
+function clearTreeDragState() {
+    document.querySelectorAll('.sortable-dragging, .drag-over').forEach(row => {
+        row.classList.remove('sortable-dragging', 'drag-over', 'drag-over-before', 'drag-over-after');
+    });
+    if (touchDragState?.row) touchDragState.row.draggable = touchDragState.nativeDraggable;
+    draggedTreePath = null;
+    dragOverRow = null;
+    if (touchDragState) {
+        clearTimeout(touchDragState.timer);
+        touchDragState = null;
+    }
+    treeDragJustEnded = true;
+    setTimeout(() => {
+        treeDragJustEnded = false;
+    }, 0);
+}
+
+function shouldInsertAfter(row, clientY) {
+    if (row.classList.contains('folder-row')) return false;
+    const rect = row.getBoundingClientRect();
+    return clientY > rect.top + rect.height / 2;
 }
 
 // --- チェックボックス一括操作（直下のファイルのみ） ---
@@ -1015,6 +1426,7 @@ function renderFileTree(items) {
         const rowDiv = document.createElement('div');
         rowDiv.className = `tree-row ${node.kind === 'directory' ? 'folder-row' : 'file-row'}`;
         rowDiv.dataset.path = node.path;
+        rowDiv.draggable = true;
 
         // 1. アイコン
         const iconDiv = document.createElement('div');
@@ -1601,6 +2013,20 @@ let compressor = null;
 let analyser = null;
 let visualizerCanvas = null;
 let visualizerCtx = null;
+const VISUALIZER_SETTINGS_KEY = 'musicrunner_visualizer_settings';
+const visualizerSettings = {
+    enabled: true,
+    mode: 'bars',
+    palette: 'violet',
+    energy: 35
+};
+
+const visualizerPalettes = {
+    violet: ['203, 191, 252', '168, 153, 230', '100, 82, 180'],
+    aqua: ['190, 255, 247', '64, 211, 198', '23, 125, 145'],
+    sunset: ['255, 224, 173', '255, 145, 94', '190, 65, 92'],
+    mono: ['255, 255, 255', '190, 190, 205', '100, 100, 120']
+};
 
 function initAudioEffects() {
     if (audioCtx) return; // すでに初期化されていればスキップ
@@ -1681,6 +2107,16 @@ function resizeVisualizer() {
 
 // スケール（最大値制限）を滑らかに変化させるための状態
 let smoothCurrentScale = 1;
+let smoothedVisualizerValues = [];
+
+function getVisualizerDynamics() {
+    const energy = visualizerSettings.energy / 100;
+    return {
+        sensitivity: 70 + energy * 90,
+        response: 0.2 + energy * 0.6,
+        recovery: 0.1 + energy * 0.6
+    };
+}
 
 function drawVisualizer() {
     if (!analyser || !visualizerCtx) return;
@@ -1696,6 +2132,11 @@ function drawVisualizer() {
     visualizerCtx.clearRect(0, 0, w, h);
 
     // 画面幅 w に応じてバーの本数を動的に決定（画面横幅全体に美しく展開）
+    if (!visualizerSettings.enabled) {
+        visualizerCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+        return;
+    }
+
     const barWidth = 10;
     const gap = 4;
     const unit = barWidth + gap;
@@ -1708,6 +2149,7 @@ function drawVisualizer() {
     const maxUseIndex = Math.max(1, useBins - 1);
 
     const bars = [];
+    const dynamics = getVisualizerDynamics();
     for (let i = 0; i < barCount; i++) {
         const binPos = (barCount > 1) ? (i / (barCount - 1)) * maxUseIndex : 0;
         const index = Math.floor(binPos);
@@ -1719,7 +2161,20 @@ function drawVisualizer() {
         } else {
             val = dataArray[index] * (1 - fraction) + dataArray[index + 1] * fraction;
         }
-        bars.push(val);
+        const targetValue = val * (dynamics.sensitivity / 100);
+        const previousValue = smoothedVisualizerValues[i] || 0;
+        const smoothing = targetValue > previousValue
+            ? dynamics.response
+            : dynamics.recovery;
+        const smoothedValue = previousValue + (targetValue - previousValue) * smoothing;
+        smoothedVisualizerValues[i] = smoothedValue;
+        bars.push(smoothedValue);
+    }
+
+    const palette = visualizerPalettes[visualizerSettings.palette] || visualizerPalettes.violet;
+    if (visualizerSettings.mode === 'aurora') {
+        drawAuroraVisualizer(bars, w, h, palette);
+        return;
     }
 
     // 最大高さを全体の45%に制限
@@ -1741,12 +2196,12 @@ function drawVisualizer() {
 
         // グラデーション
         const grad = visualizerCtx.createLinearGradient(0, barTop, 0, h);
-        grad.addColorStop(0,   `rgba(203, 191, 252, ${0.9 * t})`);
-        grad.addColorStop(0.5, `rgba(168, 153, 230, ${0.7 * t})`);
-        grad.addColorStop(1,   `rgba(100, 82,  180, ${0.4 * t})`);
+        grad.addColorStop(0, `rgba(${palette[0]}, ${0.9 * t})`);
+        grad.addColorStop(0.5, `rgba(${palette[1]}, ${0.7 * t})`);
+        grad.addColorStop(1, `rgba(${palette[2]}, ${0.4 * t})`);
 
         visualizerCtx.save();
-        visualizerCtx.shadowColor = `rgba(168, 153, 230, ${0.6 * t})`;
+        visualizerCtx.shadowColor = `rgba(${palette[1]}, ${0.6 * t})`;
         visualizerCtx.shadowBlur = 10 + t * 12;
         visualizerCtx.fillStyle = grad;
 
@@ -1768,6 +2223,56 @@ function drawVisualizer() {
         visualizerCtx.restore();
         x += unit;
     }
+}
+
+function drawAuroraVisualizer(values, width, height, palette) {
+    const baseline = height * 0.92;
+    const maxAmplitude = height * 0.62;
+    const peak = Math.max(...values, 1);
+    const points = values.map((value, index) => ({
+        x: values.length === 1 ? width / 2 : (index / (values.length - 1)) * width,
+        y: baseline - (value / peak) * maxAmplitude
+    }));
+
+    const fill = visualizerCtx.createLinearGradient(0, 0, 0, baseline);
+    fill.addColorStop(0, `rgba(${palette[0]}, 0.42)`);
+    fill.addColorStop(0.45, `rgba(${palette[1]}, 0.18)`);
+    fill.addColorStop(1, `rgba(${palette[2]}, 0)`);
+
+    visualizerCtx.save();
+    visualizerCtx.beginPath();
+    visualizerCtx.moveTo(0, baseline);
+    visualizerCtx.lineTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        const previous = points[i - 1];
+        const current = points[i];
+        const midpointX = (previous.x + current.x) / 2;
+        const midpointY = (previous.y + current.y) / 2;
+        visualizerCtx.quadraticCurveTo(previous.x, previous.y, midpointX, midpointY);
+    }
+    const lastPoint = points[points.length - 1];
+    visualizerCtx.lineTo(lastPoint.x, lastPoint.y);
+    visualizerCtx.lineTo(width, baseline);
+    visualizerCtx.closePath();
+    visualizerCtx.fillStyle = fill;
+    visualizerCtx.fill();
+
+    visualizerCtx.beginPath();
+    visualizerCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        const previous = points[i - 1];
+        const current = points[i];
+        const midpointX = (previous.x + current.x) / 2;
+        const midpointY = (previous.y + current.y) / 2;
+        visualizerCtx.quadraticCurveTo(previous.x, previous.y, midpointX, midpointY);
+    }
+    visualizerCtx.lineTo(lastPoint.x, lastPoint.y);
+    visualizerCtx.strokeStyle = `rgba(${palette[0]}, 0.92)`;
+    visualizerCtx.lineWidth = 1.5;
+    visualizerCtx.shadowColor = `rgba(${palette[1]}, 0.85)`;
+    visualizerCtx.shadowBlur = 14;
+    visualizerCtx.stroke();
+    visualizerCtx.restore();
 }
 
 
@@ -1975,4 +2480,88 @@ function initEffectsUI() {
 
     // 保存されていたエフェクト設定をUIに復元
     loadAudioSettings();
+}
+
+function initVisualizerSettingsUI() {
+    const button = document.getElementById('btn-visualizer-settings');
+    const panel = document.getElementById('visualizer-settings-panel');
+    const header = document.getElementById('visualizer-settings-header');
+    if (!button || !panel || !header) return;
+
+    try {
+        const saved = JSON.parse(localStorage.getItem(VISUALIZER_SETTINGS_KEY) || '{}');
+        Object.assign(visualizerSettings, saved);
+        if (saved.energy === undefined && saved.sensitivity !== undefined) {
+            visualizerSettings.energy = Math.round((saved.sensitivity - 70) / 0.9);
+        }
+    } catch (err) {
+        console.warn('Failed to load visualizer settings:', err);
+    }
+
+    const enabled = document.getElementById('visualizer-enabled');
+    const mode = document.getElementById('visualizer-mode');
+    const palette = document.getElementById('visualizer-palette');
+    const energy = document.getElementById('visualizer-energy');
+
+    enabled.checked = visualizerSettings.enabled;
+    mode.value = visualizerSettings.mode;
+    palette.value = visualizerSettings.palette;
+    enabled.addEventListener('change', () => {
+        visualizerSettings.enabled = enabled.checked;
+        saveVisualizerSettings();
+    });
+    mode.addEventListener('change', () => {
+        visualizerSettings.mode = mode.value;
+        saveVisualizerSettings();
+    });
+    palette.addEventListener('change', () => {
+        visualizerSettings.palette = palette.value;
+        saveVisualizerSettings();
+    });
+
+    energy.value = visualizerSettings.energy;
+    energy.addEventListener('input', () => {
+        visualizerSettings.energy = Number(energy.value);
+        document.getElementById('visualizer-energy-value').textContent = energy.value;
+        saveVisualizerSettings();
+    });
+
+    button.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        const isOpen = panel.classList.toggle('open');
+        panel.style.transform = isOpen ? 'translateX(0)' : 'translateX(100%)';
+        button.classList.toggle('active', isOpen);
+    });
+
+    let startX = 0;
+    let currentX = 0;
+    header.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX;
+        currentX = startX;
+        panel.classList.add('no-transition');
+    }, { passive: true });
+    header.addEventListener('touchmove', (e) => {
+        currentX = e.touches[0].clientX;
+        if (panel.classList.contains('open')) {
+            panel.style.transform = `translateX(${Math.max(0, currentX - startX)}px)`;
+        }
+    }, { passive: true });
+    header.addEventListener('touchend', () => {
+        panel.classList.remove('no-transition');
+        if (currentX - startX > 50) {
+            panel.classList.remove('open');
+            panel.style.transform = 'translateX(100%)';
+            button.classList.remove('active');
+        } else {
+            panel.style.transform = 'translateX(0)';
+        }
+    });
+}
+
+function saveVisualizerSettings() {
+    try {
+        localStorage.setItem(VISUALIZER_SETTINGS_KEY, JSON.stringify(visualizerSettings));
+    } catch (err) {
+        console.warn('Failed to save visualizer settings:', err);
+    }
 }

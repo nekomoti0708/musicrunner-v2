@@ -517,6 +517,101 @@ input[type="range"]::-webkit-slider-thumb:active {
     height: 42px;
 }
 
+/* ビジュアライザー設定パネル */
+#visualizer-settings-panel {
+    top: 0;
+    right: 0;
+    left: auto;
+    width: 85%;
+    max-width: 340px;
+    height: 100%;
+    border-radius: 0;
+    border-top-left-radius: 24px;
+    border-bottom-left-radius: 24px;
+    transform: translateX(100%);
+    flex-direction: row-reverse;
+}
+
+#visualizer-settings-panel.open {
+    transform: translateX(0);
+}
+
+#visualizer-settings-panel .panel-header {
+    border-top: none;
+    border-right: 1px solid #201736;
+    padding: 24px 10px;
+    min-width: 30px;
+    min-height: auto;
+    flex-direction: column;
+}
+
+#visualizer-settings-panel .drag-handle {
+    width: 5px;
+    height: 42px;
+}
+
+.visualizer-settings-body {
+    color: #e2e0e7;
+}
+
+.visualizer-settings-body h3 {
+    margin-bottom: 24px;
+    color: #e2e0e7;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.visualizer-setting-group,
+.visualizer-setting-row {
+    margin-bottom: 22px;
+}
+
+.visualizer-setting-group > label,
+.visualizer-setting-row > label {
+    color: #cbbffc;
+    font-size: 0.85rem;
+}
+
+.visualizer-setting-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.visualizer-setting-label output {
+    color: #8e8a9f;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.visualizer-settings-body select {
+    width: 100%;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid #362e4f;
+    border-radius: 8px;
+    background: #1a132a;
+    color: #e2e0e7;
+    font: inherit;
+}
+
+.visualizer-settings-body input[type="range"] {
+    width: 100%;
+}
+
+.visualizer-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.visualizer-toggle-row input {
+    width: 18px;
+    height: 18px;
+    accent-color: #a899e6;
+}
+
 /* 固定フォルダー表示バー (絶対配置オーバーレイでスクロール領域の高さを一切変動させない) */
 .sticky-folder-bar {
     position: absolute;
@@ -599,10 +694,51 @@ input[type="range"]::-webkit-slider-thumb:active {
     touch-action: manipulation;
     -webkit-user-select: none;
     user-select: none;
+    transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), background-color 160ms ease, opacity 160ms ease;
 }
 
 .tree-row:active {
     background-color: rgba(168, 153, 230, 0.08);
+}
+
+.tree-row[draggable="true"] {
+    cursor: grab;
+    touch-action: none;
+}
+
+.tree-row.sortable-dragging {
+    opacity: 0.35;
+    transform: scale(0.985);
+}
+
+.tree-row.drag-over {
+    background-color: rgba(168, 153, 230, 0.18);
+}
+
+.tree-row.drag-over-before,
+.tree-row.drag-over-after {
+    position: relative;
+}
+
+.tree-row.drag-over-before::after,
+.tree-row.drag-over-after::after {
+    content: '';
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    height: 3px;
+    border-radius: 2px;
+    background-color: #a899e6;
+    box-shadow: 0 0 8px rgba(168, 153, 230, 0.75);
+    pointer-events: none;
+}
+
+.tree-row.drag-over-before::after {
+    top: -2px;
+}
+
+.tree-row.drag-over-after::after {
+    bottom: -2px;
 }
 
 /* フォルダ特有 */
@@ -716,13 +852,13 @@ input[type="range"]::-webkit-slider-thumb:active {
     content: '';
     position: absolute;
     display: none;
-    left: 4.5px;
-    top: 2px;
+    left: 50%;
+    top: 50%;
     width: 5px;
-    height: 10px;
+    height: 9px;
     border: solid #0f0a1d;
     border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
+    transform: translate(-50%, -58%) rotate(45deg);
 }
 
 .checkbox-input:checked + .checkbox-custom--file {
@@ -755,18 +891,13 @@ input[type="range"]::-webkit-slider-thumb:active {
     content: '';
     position: absolute;
     display: none;
-    left: 4.5px;
-    top: 2px;
+    left: 50%;
+    top: 50%;
     width: 5px;
-    height: 10px;
+    height: 9px;
     border: solid #0f0a1d;
     border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-}
-
-.checkbox-custom--root::after {
-    left: 5.5px;
-    top: 3px;
+    transform: translate(-50%, -58%) rotate(45deg);
 }
 
 .checkbox-input:checked + .checkbox-custom--folder,
@@ -791,19 +922,17 @@ input[type="range"]::-webkit-slider-thumb:active {
 .checkbox-input:indeterminate + .checkbox-custom--folder::after,
 .checkbox-input:indeterminate + .checkbox-custom--root::after {
     display: block;
-    left: 3px;
-    top: 7px;
+    left: 50%;
+    top: 50%;
     width: 10px;
     height: 2px;
     border: none;
     background-color: #0f0a1d;
-    transform: none;
+    transform: translate(-50%, -50%);
     border-radius: 1px;
 }
 
 .checkbox-input:indeterminate + .checkbox-custom--root::after {
-    left: 3.5px;
-    top: 8px;
     width: 11px;
 }
 
