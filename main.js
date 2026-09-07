@@ -1082,89 +1082,73 @@ function initFileTreeInteraction() {
         }
     });
 
-    fileTreeContainer.addEventListener('pointerdown', (e) => {
-        if (e.pointerType === 'mouse' || e.button !== 0 || e.target.closest('.checkbox-container')) return;
+    fileTreeContainer.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1 || e.target.closest('.checkbox-container')) return;
+        const touch = e.touches[0];
         const row = e.target.closest('.tree-row');
         if (!row || row.dataset.rootBulk) return;
 
         touchDragState = {
-            pointerId: e.pointerId,
             row,
-            startX: e.clientX,
-            startY: e.clientY,
-            lastY: e.clientY,
-            lastMoveTime: performance.now(),
-            scrollVelocity: 0,
+            startX: touch.clientX,
+            startY: touch.clientY,
+            clientX: touch.clientX,
+            clientY: touch.clientY,
             timer: setTimeout(() => beginTouchTreeDrag(), TOUCH_DRAG_DELAY),
             active: false,
             canceled: false,
             nativeDraggable: row.draggable
         };
         row.draggable = false;
-    });
+    }, { passive: true });
 
-    fileTreeContainer.addEventListener('pointermove', (e) => {
-        if (!touchDragState || touchDragState.pointerId !== e.pointerId) return;
-        const now = performance.now();
+    fileTreeContainer.addEventListener('touchmove', (e) => {
+        if (!touchDragState || e.touches.length !== 1) return;
+        const touch = e.touches[0];
         const distance = Math.hypot(
-            e.clientX - touchDragState.startX,
-            e.clientY - touchDragState.startY
+            touch.clientX - touchDragState.startX,
+            touch.clientY - touchDragState.startY
         );
-        const deltaY = e.clientY - touchDragState.lastY;
-        const elapsed = Math.max(1, now - touchDragState.lastMoveTime);
-        touchDragState.lastY = e.clientY;
-        touchDragState.lastMoveTime = now;
 
         if (!touchDragState.active) {
             if (distance > TOUCH_DRAG_CANCEL_DISTANCE) {
                 clearTimeout(touchDragState.timer);
                 touchDragState.canceled = true;
             }
-            e.preventDefault();
-            const panelBody = document.getElementById('tree-panel-body');
-            if (panelBody) panelBody.scrollTop -= deltaY;
-            touchDragState.scrollVelocity = (-deltaY / elapsed) * 16;
             return;
         }
 
         e.preventDefault();
-        touchDragState.clientX = e.clientX;
-        touchDragState.clientY = e.clientY;
-        const row = document.elementFromPoint(e.clientX, e.clientY)?.closest('.tree-row');
-        updateTouchDragTarget(row, e.clientY);
+        touchDragState.clientX = touch.clientX;
+        touchDragState.clientY = touch.clientY;
+        const row = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.tree-row');
+        updateTouchDragTarget(row, touch.clientY);
         updateTouchAutoScroll();
-    });
+    }, { passive: false });
 
-    fileTreeContainer.addEventListener('pointerup', async (e) => {
-        if (!touchDragState || touchDragState.pointerId !== e.pointerId) return;
+    fileTreeContainer.addEventListener('touchend', async (e) => {
+        if (!touchDragState) return;
         const state = touchDragState;
-        const targetRow = document.elementFromPoint(e.clientX, e.clientY)?.closest('.tree-row');
+        const touch = e.changedTouches[0];
+        const targetRow = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.tree-row');
         if (state.active && targetRow && targetRow.dataset.path !== state.row.dataset.path) {
             try {
                 await moveTreeNode(state.row.dataset.path, targetRow.dataset.path, {
-                    insertAfter: shouldInsertAfter(targetRow, e.clientY)
+                    insertAfter: shouldInsertAfter(targetRow, touch.clientY)
                 });
             } catch (err) {
                 console.error('Touch drag move failed:', err);
             } finally {
                 clearTreeDragState();
             }
+        } else if (state.active) {
+            clearTreeDragState();
         } else {
-            if (!state.active) {
-                startTouchInertia(state.scrollVelocity);
-                finishTouchTreeGesture();
-            } else {
-                clearTreeDragState();
-            }
+            finishTouchTreeGesture();
         }
-    });
+    }, { passive: true });
 
-    fileTreeContainer.addEventListener('pointercancel', (e) => {
-        if (touchDragState && !touchDragState.active) {
-            startTouchInertia(touchDragState.scrollVelocity);
-        }
-        cancelTouchTreeDrag();
-    });
+    fileTreeContainer.addEventListener('touchcancel', cancelTouchTreeDrag, { passive: true });
 
     fileTreeContainer.addEventListener('dragstart', (e) => {
         const row = e.target.closest('.tree-row');
@@ -1206,23 +1190,18 @@ function beginTouchTreeDrag() {
     if (panelBody) panelBody.classList.add('drag-scroll-locked');
     touchDragState.clientX = touchDragState.startX;
     touchDragState.clientY = touchDragState.startY;
-    try {
-        touchDragState.row.setPointerCapture(touchDragState.pointerId);
-    } catch {}
     if (navigator.vibrate) navigator.vibrate(30);
 }
 
 function startTouchInertia(initialVelocity) {
     cancelAnimationFrame(touchInertiaRaf);
     let velocity = Math.max(-24, Math.min(24, initialVelocity || 0));
-    velocity *= 3;
     if (Math.abs(velocity) < 0.2) return;
     const panelBody = document.getElementById('tree-panel-body');
     if (!panelBody) return;
 
     const step = () => {
         panelBody.scrollTop += velocity;
-        velocity *= 0.92;
         if (Math.abs(velocity) >= 0.2) {
             touchInertiaRaf = requestAnimationFrame(step);
         } else {
@@ -1307,7 +1286,8 @@ function clearTreeDragState() {
     stopTouchAutoScroll();
     cancelAnimationFrame(touchInertiaRaf);
     touchInertiaRaf = 0;
-    if (touchDragState?.row?.hasPointerCapture?.(touchDragState.pointerId)) {
+    if (touchDragState?.pointerId !== undefined &&
+        touchDragState.row?.hasPointerCapture?.(touchDragState.pointerId)) {
         try {
             touchDragState.row.releasePointerCapture(touchDragState.pointerId);
         } catch {}

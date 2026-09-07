@@ -484,7 +484,7 @@ input[type="range"]::-webkit-slider-thumb:active {
 .panel-body {
     flex: 1;
     overflow-y: auto;
-    touch-action: none;
+    touch-action: pan-y;
     overscroll-behavior-y: contain;
     padding: 16px;
     -webkit-overflow-scrolling: touch;
@@ -714,7 +714,7 @@ input[type="range"]::-webkit-slider-thumb:active {
 
 .tree-row[draggable="true"] {
     cursor: grab;
-    touch-action: none;
+    touch-action: pan-y;
 }
 
 .tree-row.touch-dragging {
