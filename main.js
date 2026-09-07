@@ -183,6 +183,7 @@ const iconPause = btnPlayPause.querySelector('.icon-pause');
 let loadingScanCount = 0;
 let loadingScanRaf = 0;
 let loadingActive = false;
+let loadingTotalEntries = 0;
 
 function showLoading(title = 'フォルダーを読み込んでいます') {
     if (!loadingOverlay) return;
@@ -191,6 +192,7 @@ function showLoading(title = 'フォルダーを読み込んでいます') {
     loadingOverlay.classList.remove('error');
     loadingOverlay.classList.add('active');
     loadingScanCount = 0;
+    loadingTotalEntries = 0;
     loadingActive = true;
 }
 
@@ -215,9 +217,10 @@ function showLoadingError(message) {
     }, 2500);
 }
 
-function updateLoadingCount(count) {
+function updateLoadingCount() {
     if (!loadingActive) return;
-    loadingScanCount = count;
+    loadingTotalEntries++;
+    loadingScanCount = loadingTotalEntries;
     // requestAnimationFrame で描画をスロットリング（毎フレーム1回だけ更新）
     if (!loadingScanRaf) {
         loadingScanRaf = requestAnimationFrame(() => {
@@ -227,6 +230,15 @@ function updateLoadingCount(count) {
             }
         });
     }
+}
+
+function updateLoadingStatus(message) {
+    if (!loadingActive || !loadingStatus) return;
+    if (loadingScanRaf) {
+        cancelAnimationFrame(loadingScanRaf);
+        loadingScanRaf = 0;
+    }
+    loadingStatus.textContent = message;
 }
 
 function yieldToUI() {
@@ -625,7 +637,7 @@ async function traverseDirectory(dirHandle, relativePath = '') {
     for await (const entry of dirHandle.values()) {
         entryCount++;
         // 進捗表示を更新（スロットリング付き）
-        updateLoadingCount(entryCount);
+        updateLoadingCount();
 
         const entryPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
         if (entry.kind === 'file') {
@@ -658,6 +670,7 @@ async function traverseDirectory(dirHandle, relativePath = '') {
             await yieldToUI();
         }
     }
+    updateLoadingStatus(`${loadingTotalEntries} 個のエントリを確認中...`);
     const order = await readFolderOrder(dirHandle);
     mergeFolderState(order);
     const sortedItems = sortTreeItems(items, order);
