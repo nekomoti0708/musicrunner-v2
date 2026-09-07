@@ -151,8 +151,8 @@
                         </svg>
                     </button>
 
-                    <!-- ビジュアライザー設定 -->
-                    <button id="btn-visualizer-settings" class="control-btn" aria-label="ビジュアライザー設定" title="ビジュアライザー設定">
+                    <!-- 設定 -->
+                    <button id="btn-settings" class="control-btn" aria-label="設定" title="設定">
                         <svg viewBox="0 0 24 24">
                             <path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65-2-3.46-2.49 1c-.52-.4-1.08-.73-1.69-.98L15 3h-4l-.36 2.53c-.61.25-1.17.59-1.69.98l-2.49-1-2 3.46 2.11 1.65c-.04.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65 2 3.46 2.49-1c.52.4 1.08.73 1.69.98L11 21h4l.36-2.53c.61-.25 1.17-.58 1.69-.98l2.49 1 2-3.46-2.11-1.65zM13 15.5A3.5 3.5 0 1 1 13 8a3.5 3.5 0 0 1 0 7.5z" fill="currentColor"/>
                         </svg>
@@ -242,22 +242,22 @@
                 </div>
             </div>
 
-            <!-- ビジュアライザー設定パネル -->
-            <div id="visualizer-settings-panel" class="file-tree-panel visualizer-settings-panel">
-                <div class="panel-body visualizer-settings-body">
-                    <h3>Visualizer</h3>
-                    <div class="visualizer-setting-row visualizer-toggle-row">
+            <!-- 設定パネル -->
+            <div id="settings-panel" class="file-tree-panel settings-panel">
+                <div class="panel-body settings-body">
+                    <h3>Settings</h3>
+                    <div class="setting-row visualizer-toggle-row">
                         <label for="visualizer-enabled">表示</label>
                         <input type="checkbox" id="visualizer-enabled" checked>
                     </div>
-                    <div class="visualizer-setting-group">
+                    <div class="setting-group">
                         <label for="visualizer-mode">表示スタイル</label>
                         <select id="visualizer-mode">
                             <option value="bars">Vertical Bars</option>
                             <option value="aurora">Aurora Line</option>
                         </select>
                     </div>
-                    <div class="visualizer-setting-group">
+                    <div class="setting-group">
                         <label for="visualizer-palette">カラー</label>
                         <select id="visualizer-palette">
                             <option value="violet">Violet Pulse</option>
@@ -266,12 +266,12 @@
                             <option value="mono">Mono Light</option>
                         </select>
                     </div>
-                    <div class="visualizer-setting-group">
-                        <div class="visualizer-setting-label"><label for="visualizer-energy">反応</label><output id="visualizer-energy-value">35</output></div>
+                    <div class="setting-group">
+                        <div class="setting-label"><label for="visualizer-energy">反応</label><output id="visualizer-energy-value">35</output></div>
                         <input type="range" id="visualizer-energy" min="0" max="100" value="35" step="1">
                     </div>
                 </div>
-                <div class="panel-header" id="visualizer-settings-header">
+                <div class="panel-header" id="settings-header">
                     <div class="drag-handle"></div>
                 </div>
             </div>

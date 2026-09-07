@@ -1163,7 +1163,7 @@ function beginTouchTreeDrag() {
     if (!touchDragState) return;
     touchDragState.active = true;
     draggedTreePath = touchDragState.row.dataset.path;
-    touchDragState.row.classList.add('sortable-dragging');
+    touchDragState.row.classList.add('sortable-dragging', 'touch-dragging');
     try {
         touchDragState.row.setPointerCapture(touchDragState.pointerId);
     } catch {}
@@ -1198,7 +1198,7 @@ function cancelTouchTreeDrag() {
 
 function clearTreeDragState() {
     document.querySelectorAll('.sortable-dragging, .drag-over').forEach(row => {
-        row.classList.remove('sortable-dragging', 'drag-over', 'drag-over-before', 'drag-over-after');
+        row.classList.remove('sortable-dragging', 'touch-dragging', 'drag-over', 'drag-over-before', 'drag-over-after');
     });
     if (touchDragState?.row) touchDragState.row.draggable = touchDragState.nativeDraggable;
     draggedTreePath = null;
@@ -2483,9 +2483,9 @@ function initEffectsUI() {
 }
 
 function initVisualizerSettingsUI() {
-    const button = document.getElementById('btn-visualizer-settings');
-    const panel = document.getElementById('visualizer-settings-panel');
-    const header = document.getElementById('visualizer-settings-header');
+    const button = document.getElementById('btn-settings');
+    const panel = document.getElementById('settings-panel');
+    const header = document.getElementById('settings-header');
     if (!button || !panel || !header) return;
 
     try {

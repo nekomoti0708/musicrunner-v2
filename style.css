@@ -324,6 +324,7 @@ body, html {
 
 /* レンジスライダーのカスタマイズ */
 input[type="range"] {
+    appearance: none;
     -webkit-appearance: none;
     width: 100%;
     height: 4px;
@@ -334,6 +335,7 @@ input[type="range"] {
 
 /* スライダーノブ - Webkit */
 input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
     -webkit-appearance: none;
     width: 14px;
     height: 14px;
@@ -480,6 +482,7 @@ input[type="range"]::-webkit-slider-thumb:active {
 .panel-body {
     flex: 1;
     overflow-y: auto;
+    touch-action: pan-y;
     padding: 16px;
     -webkit-overflow-scrolling: touch;
 }
@@ -518,7 +521,7 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 /* ビジュアライザー設定パネル */
-#visualizer-settings-panel {
+#settings-panel {
     top: 0;
     right: 0;
     left: auto;
@@ -532,11 +535,11 @@ input[type="range"]::-webkit-slider-thumb:active {
     flex-direction: row-reverse;
 }
 
-#visualizer-settings-panel.open {
+#settings-panel.open {
     transform: translateX(0);
 }
 
-#visualizer-settings-panel .panel-header {
+#settings-panel .panel-header {
     border-top: none;
     border-right: 1px solid #201736;
     padding: 24px 10px;
@@ -545,47 +548,47 @@ input[type="range"]::-webkit-slider-thumb:active {
     flex-direction: column;
 }
 
-#visualizer-settings-panel .drag-handle {
+#settings-panel .drag-handle {
     width: 5px;
     height: 42px;
 }
 
-.visualizer-settings-body {
+.settings-body {
     color: #e2e0e7;
 }
 
-.visualizer-settings-body h3 {
+.settings-body h3 {
     margin-bottom: 24px;
     color: #e2e0e7;
     font-size: 1.1rem;
     font-weight: 600;
 }
 
-.visualizer-setting-group,
-.visualizer-setting-row {
+.setting-group,
+.setting-row {
     margin-bottom: 22px;
 }
 
-.visualizer-setting-group > label,
-.visualizer-setting-row > label {
+.setting-group > label,
+.setting-row > label {
     color: #cbbffc;
     font-size: 0.85rem;
 }
 
-.visualizer-setting-label {
+.setting-label {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 10px;
 }
 
-.visualizer-setting-label output {
+.setting-label output {
     color: #8e8a9f;
     font-size: 0.8rem;
     font-variant-numeric: tabular-nums;
 }
 
-.visualizer-settings-body select {
+.settings-body select {
     width: 100%;
     margin-top: 10px;
     padding: 10px 12px;
@@ -596,7 +599,7 @@ input[type="range"]::-webkit-slider-thumb:active {
     font: inherit;
 }
 
-.visualizer-settings-body input[type="range"] {
+.settings-body input[type="range"] {
     width: 100%;
 }
 
@@ -665,7 +668,7 @@ input[type="range"]::-webkit-slider-thumb:active {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    touch-action: manipulation;
+    touch-action: pan-y;
 }
 
 .empty-tree-message {
@@ -703,6 +706,10 @@ input[type="range"]::-webkit-slider-thumb:active {
 
 .tree-row[draggable="true"] {
     cursor: grab;
+    touch-action: pan-y;
+}
+
+.tree-row.touch-dragging {
     touch-action: none;
 }
 
