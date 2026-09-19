@@ -275,6 +275,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     initEventListeners();
     initFileTreeInteraction();
     initSwipeGestures();
+    initTreeSearchUI();
     initEffectsUI();
     initVisualizerSettingsUI();
 // Register Service Worker for PWA
@@ -2076,7 +2077,13 @@ function initSwipeGestures() {
 
     // 2. パネルヘッダー（ドラッグバー）を上にスワイプして閉じる
     let isPanelDragging = false;
+    let isHeaderTouchIgnored = false;
     function startClose(e) {
+        if (e.target.closest('#btn-tree-search')) {
+            isHeaderTouchIgnored = true;
+            return;
+        }
+        isHeaderTouchIgnored = false;
         touchStartY = e.touches[0].clientY;
         touchCurrentY = touchStartY;
         isPanelDragging = false;
@@ -2084,6 +2091,7 @@ function initSwipeGestures() {
         fileTreePanel.classList.add('no-transition');
     }
     function moveClose(e) {
+        if (isHeaderTouchIgnored) return;
         touchCurrentY = e.touches[0].clientY;
         const diff = touchCurrentY - touchStartY;
         if (Math.abs(diff) > 5) {
@@ -2095,6 +2103,10 @@ function initSwipeGestures() {
         }
     }
     function endClose() {
+        if (isHeaderTouchIgnored) {
+            isHeaderTouchIgnored = false;
+            return;
+        }
         fileTreePanel.classList.remove('no-transition');
         const diff = touchCurrentY - touchStartY;
         // 実際に上方向に50px以上スワイプされた場合のみ閉じる
@@ -2121,6 +2133,7 @@ function openFileTreePanel() {
 function closeFileTreePanel() {
     fileTreePanel.classList.remove('open');
     fileTreePanel.style.transform = 'translateY(-100%)';
+    closeTreeSearch(true);
 }
 
 // --- Web Audio API エフェクト ---
@@ -2760,3 +2773,222 @@ function saveVisualizerSettings() {
         console.warn('Failed to save visualizer settings:', err);
     }
 }
+
+// --- ファイルツリー楽曲検索機能 ---
+let isSearchActive = false;
+let currentSearchQuery = '';
+
+function initTreeSearchUI() {
+    const btnSearch = document.getElementById('btn-tree-search');
+    const searchBar = document.getElementById('tree-search-bar');
+    const searchInput = document.getElementById('tree-search-input');
+    const btnClear = document.getElementById('btn-tree-search-clear');
+    const btnClose = document.getElementById('btn-tree-search-close');
+
+    if (!btnSearch || !searchBar || !searchInput || !btnClear || !btnClose) return;
+
+    // 検索ボタンクリック/タップ (トグル)
+    btnSearch.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isSearchActive) {
+            closeTreeSearch();
+        } else {
+            openTreeSearch();
+        }
+    });
+
+    // 入力イベント（リアルタイム絞り込み）
+    searchInput.addEventListener('input', () => {
+        handleTreeSearchInput(searchInput.value);
+    });
+
+    // クリアボタン
+    btnClear.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        searchInput.value = '';
+        btnClear.classList.add('hidden');
+        handleTreeSearchInput('');
+        searchInput.focus();
+    });
+
+    // 閉じるボタン
+    btnClose.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeTreeSearch();
+    });
+
+    // ESCキーで検索終了
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeTreeSearch();
+        }
+    });
+}
+
+function openTreeSearch() {
+    const searchBar = document.getElementById('tree-search-bar');
+    const searchInput = document.getElementById('tree-search-input');
+    const btnSearch = document.getElementById('btn-tree-search');
+    const stickyBar = document.getElementById('sticky-folder-bar');
+
+    if (!searchBar || !searchInput) return;
+
+    isSearchActive = true;
+    searchBar.classList.remove('hidden');
+    if (btnSearch) btnSearch.classList.add('active');
+    if (stickyBar) stickyBar.classList.add('hidden');
+
+    searchInput.focus();
+    if (searchInput.value.trim()) {
+        handleTreeSearchInput(searchInput.value);
+    }
+}
+
+function closeTreeSearch(restoreTree = true) {
+    const searchBar = document.getElementById('tree-search-bar');
+    const searchInput = document.getElementById('tree-search-input');
+    const btnSearch = document.getElementById('btn-tree-search');
+    const btnClear = document.getElementById('btn-tree-search-clear');
+
+    if (!searchBar) return;
+
+    isSearchActive = false;
+    currentSearchQuery = '';
+    searchBar.classList.add('hidden');
+    if (btnSearch) btnSearch.classList.remove('active');
+    if (searchInput) searchInput.value = '';
+    if (btnClear) btnClear.classList.add('hidden');
+
+    if (restoreTree && currentTreeItems) {
+        renderFileTree(currentTreeItems);
+    }
+}
+
+function handleTreeSearchInput(query) {
+    const trimmed = (query || '').trim();
+    const btnClear = document.getElementById('btn-tree-search-clear');
+    if (btnClear) {
+        btnClear.classList.toggle('hidden', trimmed.length === 0);
+    }
+
+    currentSearchQuery = trimmed;
+
+    if (!trimmed) {
+        // 検索ワードが空なら元のツリー表示に戻す
+        renderFileTree(currentTreeItems);
+        return;
+    }
+
+    renderSearchResults(trimmed);
+}
+
+// 検索ワードに一致する楽曲のみをフラットに抽出して描画
+function renderSearchResults(query) {
+    const lowerQuery = query.toLowerCase();
+    fileTreeContainer.innerHTML = '';
+
+    // 再生可能なフラットファイル一覧からマッチする曲を抽出
+    const matchedFiles = flatFiles.filter(fileNode => {
+        return fileNode.name.toLowerCase().includes(lowerQuery);
+    });
+
+    if (matchedFiles.length === 0) {
+        fileTreeContainer.innerHTML = '<div class="empty-tree-message">一致する楽曲が見つかりませんでした。</div>';
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    matchedFiles.forEach(node => {
+        const nodeDiv = document.createElement('div');
+        nodeDiv.className = 'tree-node';
+
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'tree-row file-row';
+        rowDiv.dataset.path = node.path;
+        rowDiv.draggable = false;
+
+        // 1. アイコン
+        const iconDiv = document.createElement('div');
+        iconDiv.className = 'row-icon';
+        const isVid = isVideoFile(node.name);
+        if (isVid) {
+            iconDiv.innerHTML = `
+                <svg viewBox="0 0 24 24">
+                    <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" fill="currentColor"/>
+                </svg>
+            `;
+        } else {
+            iconDiv.innerHTML = `
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" fill="currentColor"/>
+                </svg>
+            `;
+        }
+        rowDiv.appendChild(iconDiv);
+
+        // 2. ラベルとフォルダパス補足情報
+        const labelWrapper = document.createElement('div');
+        labelWrapper.style.flex = '1';
+        labelWrapper.style.minWidth = '0';
+
+        const labelDiv = document.createElement('div');
+        labelDiv.className = 'row-label';
+        // マッチした文字列をハイライト
+        labelDiv.innerHTML = highlightMatchText(node.name, query);
+        labelWrapper.appendChild(labelDiv);
+
+        // 親フォルダーパスがある場合は小さく控えめに補足表示
+        const parentPath = getParentFolderPath(node.path);
+        if (parentPath) {
+            const subtextDiv = document.createElement('div');
+            subtextDiv.className = 'search-result-subtext';
+            subtextDiv.textContent = parentPath;
+            labelWrapper.appendChild(subtextDiv);
+        }
+        rowDiv.appendChild(labelWrapper);
+
+        // 3. チェックボックス（キュー連動）
+        const fileChecked = isFilePathChecked(node.path);
+        const { cbContainer } = createCheckboxControl({
+            variant: 'file',
+            dataset: { path: node.path },
+            checked: fileChecked,
+            indeterminate: false,
+            onToggle: (checked) => {
+                currentState.checkedFiles[node.path] = checked;
+                scheduleSaveCurrentState();
+                updatePlaylistQueue();
+                refreshBulkForFileChange(node.path);
+            }
+        });
+        rowDiv.appendChild(cbContainer);
+
+        nodeDiv.appendChild(rowDiv);
+        fragment.appendChild(nodeDiv);
+    });
+
+    fileTreeContainer.appendChild(fragment);
+    highlightPlayingRow();
+}
+
+// 検索文字列のハイライト（大文字小文字を区別せず、正規表現エスケープ対応）
+function highlightMatchText(text, query) {
+    if (!query) return escapeHtml(text);
+    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedQuery})`, 'gi');
+    return escapeHtml(text).replace(regex, '<mark class="search-highlight">$1</mark>');
+}
+
+function escapeHtml(str) {
+    return (str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
