@@ -2075,14 +2075,20 @@ function initSwipeGestures() {
     });
 
     // 2. パネルヘッダー（ドラッグバー）を上にスワイプして閉じる
+    let isPanelDragging = false;
     function startClose(e) {
         touchStartY = e.touches[0].clientY;
+        touchCurrentY = touchStartY;
+        isPanelDragging = false;
         panelHeight = fileTreePanel.offsetHeight;
         fileTreePanel.classList.add('no-transition');
     }
     function moveClose(e) {
         touchCurrentY = e.touches[0].clientY;
         const diff = touchCurrentY - touchStartY;
+        if (Math.abs(diff) > 5) {
+            isPanelDragging = true;
+        }
         if (fileTreePanel.classList.contains('open')) {
             const ty = Math.min(0, diff);
             fileTreePanel.style.transform = `translateY(${ty}px)`;
@@ -2091,12 +2097,13 @@ function initSwipeGestures() {
     function endClose() {
         fileTreePanel.classList.remove('no-transition');
         const diff = touchCurrentY - touchStartY;
-        // 50px 以上上にスワイプすれば閉じる
-        if (diff < -50) {
+        // 実際に上方向に50px以上スワイプされた場合のみ閉じる
+        if (isPanelDragging && diff < -50) {
             closeFileTreePanel();
         } else {
             openFileTreePanel();
         }
+        isPanelDragging = false;
     }
 
     panelHeader.addEventListener('touchstart', startClose, { passive: true });
@@ -2633,15 +2640,20 @@ function initEffectsUI() {
     });
 
     // スワイプで閉じる (右にスワイプ)
-    let ex = 0, currX = 0;
+    let ex = 0, currX = 0, isEffectsDragging = false;
     dragHeader.addEventListener('touchstart', (e) => {
         ex = e.touches[0].clientX;
+        currX = ex;
+        isEffectsDragging = false;
         effectsPanel.classList.add('no-transition');
     }, { passive: true });
     
     dragHeader.addEventListener('touchmove', (e) => {
         currX = e.touches[0].clientX;
         const diff = currX - ex;
+        if (Math.abs(diff) > 5) {
+            isEffectsDragging = true;
+        }
         if (effectsPanel.classList.contains('open')) {
             // 右スワイプ(正の値)のみ許可
             const tx = Math.max(0, diff);
@@ -2652,12 +2664,13 @@ function initEffectsUI() {
     dragHeader.addEventListener('touchend', () => {
         effectsPanel.classList.remove('no-transition');
         const diff = currX - ex;
-        if (diff > 50) {
+        if (isEffectsDragging && diff > 50) {
             effectsPanel.classList.remove('open');
             effectsPanel.style.transform = 'translateX(100%)';
         } else {
             effectsPanel.style.transform = 'translateX(0)';
         }
+        isEffectsDragging = false;
     });
 
     // 保存されていたエフェクト設定をUIに復元
