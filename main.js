@@ -2820,12 +2820,19 @@ function initTreeSearchUI() {
         closeTreeSearch();
     });
 
-    // ESCキーで検索終了。Enter はデフォルト動作を止めて UI が崩れないようにする
+    // ESCキーで検索終了。Enter はデフォルト動作と viewport の伸びを止めて UI を安定化する
     searchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             e.stopPropagation();
-            searchInput.blur();
+            e.stopImmediatePropagation();
+
+            // モバイルブラウザでは blur により viewport が再計算され、ページ高さが伸びることがあるため
+            // キーボードを閉じずに検索結果だけを更新し、ページ全体のスクロールを固定する。
+            document.body.style.overflow = 'hidden';
+            document.documentElement.style.overflow = 'hidden';
+            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+
             const query = searchInput.value.trim();
             if (query) {
                 renderSearchResults(query);
@@ -2854,6 +2861,8 @@ function openTreeSearch() {
     if (!searchBar || !searchInput) return;
 
     isSearchActive = true;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
     searchBar.classList.remove('hidden');
     if (btnSearch) btnSearch.classList.add('active');
     if (stickyBar) stickyBar.classList.add('hidden');
@@ -2874,6 +2883,8 @@ function closeTreeSearch(restoreTree = true) {
 
     isSearchActive = false;
     currentSearchQuery = '';
+    document.body.style.overflow = '';
+    document.documentElement.style.overflow = '';
     searchBar.classList.add('hidden');
     if (btnSearch) btnSearch.classList.remove('active');
     if (searchInput) searchInput.value = '';
