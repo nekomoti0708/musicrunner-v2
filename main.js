@@ -241,6 +241,8 @@ function updateLoadingStatus(message) {
     loadingStatus.textContent = message;
 }
 
+const TREE_SCAN_UI_YIELD_EVERY = 250;
+
 function yieldToUI() {
     return new Promise(resolve => setTimeout(resolve, 0));
 }
@@ -515,10 +517,9 @@ async function handleOpenLastDirectory() {
         }
         activeFolderName = folderName;
 
-        // 読み込みオーバーレイを表示（描画のためにイベントループに譲る）
+        // 読み込みオーバーレイを表示
         showLoading(`「${folderName}」を復元しています`);
         loadingStatus.textContent = `${cachedFolderFiles.length} 個のファイルを処理中...`;
-        await yieldToUI();
 
         try {
             const stateKey = `musicrunner_state_${folderName}`;
@@ -666,8 +667,8 @@ async function traverseDirectory(dirHandle, relativePath = '') {
                 });
             }
         }
-        // 大量エントリ時にUIが固まるのを防ぐため、定期的にイベントループに譲る
-        if (entryCount % 50 === 0) {
+        // 大量エントリ時の UI 停止を避けるため、頻度を下げてスキャンを高速化する
+        if (entryCount % TREE_SCAN_UI_YIELD_EVERY === 0) {
             await yieldToUI();
         }
     }
@@ -1920,10 +1921,9 @@ async function handleFallbackFolder(e) {
         folderName = files[0].webkitRelativePath.split('/')[0];
     }
 
-    // 読み込みオーバーレイを表示（描画のためにイベントループに譲る）
+    // 読み込みオーバーレイを表示
     showLoading(`「${folderName}」を読み込んでいます`);
     loadingStatus.textContent = `${files.length} 個のファイルを処理中...`;
-    await yieldToUI();
 
     try {
         // Load saved UI state if exists
@@ -2820,9 +2820,26 @@ function initTreeSearchUI() {
         closeTreeSearch();
     });
 
-    // ESCキーで検索終了
+    // ESCキーで検索終了。Enter はデフォルト動作を止めて UI が崩れないようにする
     searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            searchInput.blur();
+            const query = searchInput.value.trim();
+            if (query) {
+                renderSearchResults(query);
+                currentSearchQuery = query;
+            } else {
+                renderFileTree(currentTreeItems);
+                currentSearchQuery = '';
+            }
+            return;
+        }
+
         if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
             closeTreeSearch();
         }
     });
