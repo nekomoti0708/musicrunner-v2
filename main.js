@@ -2781,11 +2781,12 @@ let currentSearchQuery = '';
 function initTreeSearchUI() {
     const btnSearch = document.getElementById('btn-tree-search');
     const searchBar = document.getElementById('tree-search-bar');
+    const searchForm = document.getElementById('tree-search-form');
     const searchInput = document.getElementById('tree-search-input');
     const btnClear = document.getElementById('btn-tree-search-clear');
     const btnClose = document.getElementById('btn-tree-search-close');
 
-    if (!btnSearch || !searchBar || !searchInput || !btnClear || !btnClose) return;
+    if (!btnSearch || !searchBar || !searchForm || !searchInput || !btnClear || !btnClose) return;
 
     // 検索ボタンクリック/タップ (トグル)
     btnSearch.addEventListener('click', (e) => {
@@ -2820,27 +2821,36 @@ function initTreeSearchUI() {
         closeTreeSearch();
     });
 
-    // ESCキーで検索終了。Enter はデフォルト動作と viewport の伸びを止めて UI を安定化する
+    const applyTreeSearch = () => {
+        const query = searchInput.value.trim();
+        if (query) {
+            renderSearchResults(query);
+            currentSearchQuery = query;
+        } else {
+            renderFileTree(currentTreeItems);
+            currentSearchQuery = '';
+        }
+
+        // ここで body/html の overflow を変えると、スマホの仮想キーボード時に viewport が伸びる
+        // ため、キーボードを閉じるだけに留める。
+        requestAnimationFrame(() => {
+            searchInput.blur();
+        });
+    };
+
+    // form submit がスマホの「決定」キーの主経路になるため、
+    // ここで Enter / 決定を一括に処理する。
+    searchForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        applyTreeSearch();
+    });
+
     searchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             e.stopPropagation();
-            e.stopImmediatePropagation();
-
-            // モバイルブラウザでは blur により viewport が再計算され、ページ高さが伸びることがあるため
-            // キーボードを閉じずに検索結果だけを更新し、ページ全体のスクロールを固定する。
-            document.body.style.overflow = 'hidden';
-            document.documentElement.style.overflow = 'hidden';
-            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-
-            const query = searchInput.value.trim();
-            if (query) {
-                renderSearchResults(query);
-                currentSearchQuery = query;
-            } else {
-                renderFileTree(currentTreeItems);
-                currentSearchQuery = '';
-            }
+            applyTreeSearch();
             return;
         }
 
@@ -2861,8 +2871,6 @@ function openTreeSearch() {
     if (!searchBar || !searchInput) return;
 
     isSearchActive = true;
-    document.body.style.overflow = 'hidden';
-    document.documentElement.style.overflow = 'hidden';
     searchBar.classList.remove('hidden');
     if (btnSearch) btnSearch.classList.add('active');
     if (stickyBar) stickyBar.classList.add('hidden');
@@ -2883,8 +2891,6 @@ function closeTreeSearch(restoreTree = true) {
 
     isSearchActive = false;
     currentSearchQuery = '';
-    document.body.style.overflow = '';
-    document.documentElement.style.overflow = '';
     searchBar.classList.add('hidden');
     if (btnSearch) btnSearch.classList.remove('active');
     if (searchInput) searchInput.value = '';
@@ -2902,6 +2908,7 @@ function closeTreeSearch(restoreTree = true) {
 function handleTreeSearchInput(query) {
     const trimmed = (query || '').trim();
     const btnClear = document.getElementById('btn-tree-search-clear');
+    const countBar = document.getElementById('search-count-bar');
     if (btnClear) {
         btnClear.classList.toggle('hidden', trimmed.length === 0);
     }
@@ -2909,7 +2916,8 @@ function handleTreeSearchInput(query) {
     currentSearchQuery = trimmed;
 
     if (!trimmed) {
-        // 検索ワードが空なら元のツリー表示に戻す
+        // 検索ワードが空なら元のツリー表示に戻し、件数表示も明示的に消す
+        if (countBar) countBar.classList.add('hidden');
         renderFileTree(currentTreeItems);
         return;
     }

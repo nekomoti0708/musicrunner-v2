@@ -540,6 +540,16 @@ input[type="range"]::-webkit-slider-thumb:active {
     overflow: hidden;
 }
 
+.tree-search-form {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: 100% !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+}
+
 .tree-search-bar.hidden {
     transform: scaleY(0) translateY(-6px);
     opacity: 0;
@@ -583,6 +593,22 @@ input[type="range"]::-webkit-slider-thumb:active {
     font-family: inherit;
     outline: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+#tree-search-input::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 0;
+    height: 0;
+    display: none;
+}
+
+#tree-search-input::-ms-clear {
+    display: none;
+    width: 0;
+    height: 0;
 }
 
 #tree-search-input:focus {

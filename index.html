@@ -21,7 +21,7 @@
             <div class="home-container">
                 <header class="home-header">
                     <h1 style="font-size: 2.2rem; font-weight: 600; color: #e2e0e7; letter-spacing: 1px;">Music Runner</h1>
-                    <span style="font-size: 0.9rem; color: #a899e6; background-color: rgba(168, 153, 230, 0.15); padding: 4px 12px; border-radius: 12px; font-weight: 500;">v3.0.5</span>
+                    <span style="font-size: 0.9rem; color: #a899e6; background-color: rgba(168, 153, 230, 0.15); padding: 4px 12px; border-radius: 12px; font-weight: 500;">v3.0.6</span>
                 </header>
                 <main class="home-buttons">
                     <!-- ファイルを開く -->
@@ -172,22 +172,24 @@
             <div id="file-tree-panel" class="file-tree-panel">
                 <!-- 楽曲検索バー (非表示・展開式) -->
                 <div id="tree-search-bar" class="tree-search-bar hidden">
-                    <div class="search-input-wrapper">
-                        <svg class="search-input-icon" viewBox="0 0 24 24">
-                            <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" fill="currentColor"/>
-                        </svg>
-                        <input type="text" id="tree-search-input" placeholder="曲名を検索..." autocomplete="off" spellcheck="false" enterkeyhint="search" inputmode="search">
-                        <button type="button" id="btn-tree-search-clear" class="search-clear-btn hidden" aria-label="検索ワードをクリア">
+                    <form id="tree-search-form" class="tree-search-form" action="#" method="get" novalidate>
+                        <div class="search-input-wrapper">
+                            <svg class="search-input-icon" viewBox="0 0 24 24">
+                                <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" fill="currentColor"/>
+                            </svg>
+                            <input type="search" id="tree-search-input" placeholder="曲名を検索..." autocomplete="off" spellcheck="false" enterkeyhint="done" inputmode="search">
+                            <button type="button" id="btn-tree-search-clear" class="search-clear-btn hidden" aria-label="検索ワードをクリア">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <button type="button" id="btn-tree-search-close" class="search-close-btn" aria-label="検索を閉じる">
                             <svg viewBox="0 0 24 24">
                                 <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
                             </svg>
                         </button>
-                    </div>
-                    <button type="button" id="btn-tree-search-close" class="search-close-btn" aria-label="検索を閉じる">
-                        <svg viewBox="0 0 24 24">
-                            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
-                        </svg>
-                    </button>
+                    </form>
                 </div>
                 <!-- 検索結果件数バー -->
                 <div id="search-count-bar" class="search-count-bar hidden"></div>
