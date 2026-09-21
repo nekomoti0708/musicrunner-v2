@@ -20,6 +20,8 @@ const DB_NAME = 'MusicRunnerDB';
 const STORE_NAME = 'keyval';
 const LAST_DIR_KEY = 'lastDirectoryHandle';
 const LAST_FOLDER_META_KEY = 'musicrunner_last_folder_meta';
+const RECENT_FOLDERS_KEY = 'musicrunner_recent_folders';
+const RECENT_DIR_HANDLE_PREFIX = 'musicrunner_recent_dir_';
 
 function openDB() {
     return new Promise((resolve, reject) => {
@@ -64,9 +66,107 @@ async function setVal(key, val) {
     }
 }
 
+function getRecentFolders() {
+    try {
+        const raw = localStorage.getItem(RECENT_FOLDERS_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter(item => item && item.folderName) : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveRecentFolder(folderName) {
+    if (!folderName) return;
+
+    const trimmedName = String(folderName).trim();
+    if (!trimmedName) return;
+
+    const recent = getRecentFolders();
+    const filtered = recent.filter(item => item.folderName !== trimmedName);
+    filtered.unshift({ folderName: trimmedName, savedAt: Date.now() });
+
+    const nextList = filtered.slice(0, 5);
+    try {
+        localStorage.setItem(RECENT_FOLDERS_KEY, JSON.stringify(nextList));
+    } catch (err) {
+        console.warn('recent folders save failed:', err);
+    }
+}
+
+function getRecentFolderHandleKey(folderName) {
+    return `${RECENT_DIR_HANDLE_PREFIX}${encodeURIComponent(folderName)}`;
+}
+
+async function saveRecentFolderHandle(folderName, dirHandle) {
+    if (!folderName || !dirHandle) return;
+    try {
+        await setVal(getRecentFolderHandleKey(folderName), dirHandle);
+    } catch (err) {
+        console.warn('recent folder handle save failed:', err);
+    }
+}
+
+async function getRecentFolderHandle(folderName) {
+    if (!folderName) return null;
+    try {
+        return await getVal(getRecentFolderHandleKey(folderName));
+    } catch {
+        return null;
+    }
+}
+
+function renderRecentFolders() {
+    const list = document.getElementById('recent-folders-list');
+    if (!list) return;
+
+    const recent = getRecentFolders();
+    const visibleRecent = recent.slice(1);
+
+    list.innerHTML = '';
+    if (visibleRecent.length === 0) {
+        list.classList.add('hidden');
+        return;
+    }
+
+    list.classList.remove('hidden');
+
+    visibleRecent.forEach((item) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'recent-folder-item';
+        button.textContent = item.folderName;
+        button.title = item.folderName;
+        button.addEventListener('click', async () => {
+            const recentHandle = await getRecentFolderHandle(item.folderName);
+            if (recentHandle) {
+                const granted = await verifyPermission(recentHandle, true);
+                if (granted) {
+                    await loadDirectory(recentHandle);
+                    return;
+                }
+            }
+            if (window.showDirectoryPicker) {
+                try {
+                    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    if (await verifyPermission(handle, true)) {
+                        await loadDirectory(handle);
+                    }
+                    return;
+                } catch (e) {
+                    if (e.name === 'AbortError') return;
+                }
+            }
+            inputFolder.click();
+        });
+        list.appendChild(button);
+    });
+}
+
 function saveLastFolderMeta(folderName, source) {
     if (!folderName) return;
     activeFolderName = folderName;
+    saveRecentFolder(folderName);
     try {
         localStorage.setItem(LAST_FOLDER_META_KEY, JSON.stringify({
             folderName,
@@ -88,11 +188,19 @@ function getLastFolderMeta() {
 }
 
 async function updateLastFolderButton() {
+    const recent = getRecentFolders();
+    const latest = recent[0] || getLastFolderMeta();
+    const btnLabel = btnOpenLastFolder.querySelector('span');
+    if (btnLabel) {
+        btnLabel.textContent = latest && latest.folderName ? `最近: ${latest.folderName}` : '前回のフォルダーを開く';
+    }
+
     let canOpen = false;
     try {
         const lastHandle = await getVal(LAST_DIR_KEY);
         if (lastHandle) canOpen = true;
     } catch { /* ignore */ }
+    if (!canOpen && latest) canOpen = true;
     if (!canOpen && getLastFolderMeta()) canOpen = true;
     if (!canOpen && cachedFolderFiles && cachedFolderFiles.length > 0) canOpen = true;
 
@@ -274,6 +382,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    renderRecentFolders();
     initEventListeners();
     initFileTreeInteraction();
     initSwipeGestures();
@@ -302,7 +411,21 @@ function initEventListeners() {
     // フォルダーを開くボタン（FSA が使えればハンドルを IndexedDB に保存して次回も開ける）
     btnOpenFolder.addEventListener('click', () => openFolderPicker());
 
-    btnOpenLastFolder.addEventListener('click', handleOpenLastDirectory);
+    btnOpenLastFolder.addEventListener('click', async () => {
+        const recent = getRecentFolders();
+        const latest = recent[0];
+        if (latest) {
+            const recentHandle = await getRecentFolderHandle(latest.folderName);
+            if (recentHandle) {
+                const granted = await verifyPermission(recentHandle, true);
+                if (granted) {
+                    await loadDirectory(recentHandle);
+                    return;
+                }
+            }
+        }
+        handleOpenLastDirectory();
+    });
 
     // 従来の input 要素の変更検知
     inputFile.addEventListener('change', handleFallbackFiles);
@@ -382,6 +505,8 @@ function showScreen(screenId) {
 
 function goBackToHome() {
     showScreen('home');
+    renderRecentFolders();
+    updateLastFolderButton();
 }
 
 // --- 再生・一時停止の制御 ---
@@ -602,8 +727,10 @@ async function loadDirectory(dirHandle) {
     try {
         // IndexedDB に保存して次回起動時に備える
         await setVal(LAST_DIR_KEY, dirHandle);
+        await saveRecentFolderHandle(dirHandle.name, dirHandle);
         saveLastFolderMeta(dirHandle.name, 'handle');
         cachedFolderFiles = null;
+        renderRecentFolders();
         await updateLastFolderButton();
 
         // FSA で開いたフォルダーの状態は各階層の musics.json から復元する

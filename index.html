@@ -48,7 +48,7 @@
                     </button>
                     <input type="file" id="input-folder" webkitdirectory directory style="display:none">
 
-                    <!-- 前回のフォルダーを開く -->
+                    <!-- 最も最近のフォルダー -->
                     <button id="btn-open-last-folder" class="btn-primary disabled" disabled>
                         <svg class="btn-icon" viewBox="0 0 24 24">
                             <path
@@ -57,6 +57,8 @@
                         </svg>
                         <span>前回のフォルダーを開く</span>
                     </button>
+
+                    <div id="recent-folders-list" class="recent-folders-list" aria-live="polite"></div>
                 </main>
             </div>
         </section>

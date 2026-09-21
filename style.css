@@ -79,6 +79,41 @@ body, html {
     gap: 16px;
 }
 
+.recent-folders-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    max-width: 400px;
+}
+
+.recent-folder-item {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid #2b2244;
+    background: rgba(18, 13, 30, 0.8);
+    color: #d9d3eb;
+    text-align: left;
+    font-size: 0.84rem;
+    font-family: inherit;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.15s ease;
+}
+
+.recent-folder-item.primary {
+    background: linear-gradient(135deg, rgba(89, 72, 146, 0.35), rgba(20, 15, 33, 0.9));
+    border-color: #584b8a;
+    box-shadow: 0 0 0 1px rgba(111, 94, 177, 0.28);
+}
+
+.recent-folder-item:active {
+    transform: scale(0.98);
+}
+
 /* ボタン基本スタイル */
 .btn-primary {
     display: flex;
