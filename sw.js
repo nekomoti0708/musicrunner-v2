@@ -1,6 +1,7 @@
 // sw.js - Simple Service Worker for caching assets
 const CACHE_NAME = 'music-runner-v2-cache';
 const OFFLINE_URL = 'index.html';
+let currentNetworkMode = 'unknown';
 
 const ASSETS_TO_CACHE = [
   './',
@@ -37,6 +38,13 @@ self.addEventListener('activate', event => {
   return self.clients.claim();
 });
 
+self.addEventListener('message', event => {
+  const mode = event.data && event.data.type === 'SET_NETWORK_MODE' ? event.data.mode : null;
+  if (mode === 'wifi' || mode === 'cellular' || mode === 'unknown') {
+    currentNetworkMode = mode;
+  }
+});
+
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
 
@@ -45,17 +53,29 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // モバイル通信かどうか判定（Chrome Network Information API）
-  const isCellular = navigator.connection && navigator.connection.type === 'cellular';
+  const isOffline = !self.navigator.onLine;
+  const isCellular = currentNetworkMode === 'cellular';
+
+  if (isOffline) {
+    event.respondWith(
+      caches.match(event.request).then(cachedResponse => {
+        if (cachedResponse) return cachedResponse;
+        if (event.request.mode === 'navigate') {
+          return caches.match(OFFLINE_URL);
+        }
+        return undefined;
+      })
+    );
+    return;
+  }
 
   if (isCellular) {
-    // モバイル通信 → キャッシュ優先（通信量を節約）
     event.respondWith(
       caches.match(event.request).then(cachedResponse => {
         if (cachedResponse) {
           return cachedResponse;
         }
-        // キャッシュになければネットワークへ
+
         return fetch(event.request).then(networkResponse => {
           if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
             const responseToCache = networkResponse.clone();
@@ -70,26 +90,26 @@ self.addEventListener('fetch', event => {
         });
       })
     );
-  } else {
-    // WiFi / 有線 → ネットワーク優先（常に最新を取得）
-    event.respondWith(
-      fetch(event.request).then(networkResponse => {
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache)).catch(() => {});
-        }
-        return networkResponse;
-      }).catch(() => {
-        return caches.match(event.request).then(cachedResponse => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          if (event.request.mode === 'navigate') {
-            return caches.match(OFFLINE_URL);
-          }
-          return undefined;
-        });
-      })
-    );
+    return;
   }
+
+  event.respondWith(
+    fetch(event.request).then(networkResponse => {
+      if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache)).catch(() => {});
+      }
+      return networkResponse;
+    }).catch(() => {
+      return caches.match(event.request).then(cachedResponse => {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        if (event.request.mode === 'navigate') {
+          return caches.match(OFFLINE_URL);
+        }
+        return undefined;
+      });
+    })
+  );
 });

@@ -73,6 +73,19 @@ body, html {
     margin-bottom: 20px;
 }
 
+.network-status-indicator {
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    color: rgba(212, 201, 255, 0.68);
+    background: rgba(160, 146, 214, 0.08);
+    border: 1px solid rgba(160, 146, 214, 0.12);
+    border-radius: 999px;
+    padding: 4px 10px;
+    line-height: 1.4;
+    opacity: 0.72;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
 .home-buttons {
     display: flex;
     flex-direction: column;

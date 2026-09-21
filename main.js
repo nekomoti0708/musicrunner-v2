@@ -253,6 +253,7 @@ const playScreen = document.getElementById('play-screen');
 const btnOpenFile = document.getElementById('btn-open-file');
 const btnOpenFolder = document.getElementById('btn-open-folder');
 const btnOpenLastFolder = document.getElementById('btn-open-last-folder');
+const networkStatusIndicator = document.getElementById('network-status-indicator');
 
 const inputFile = document.getElementById('input-file');
 const inputFolder = document.getElementById('input-folder');
@@ -383,6 +384,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     renderRecentFolders();
+    updateNetworkStatusIndicator();
     initEventListeners();
     initFileTreeInteraction();
     initSwipeGestures();
@@ -392,11 +394,48 @@ window.addEventListener('DOMContentLoaded', async () => {
 // Register Service Worker for PWA
 if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js')
+        .then(() => {
+            const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            const reportNetworkMode = () => {
+                const mode = !navigator.onLine ? 'unknown' : connection && connection.type === 'cellular' ? 'cellular' : 'wifi';
+                if (navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.controller.postMessage({ type: 'SET_NETWORK_MODE', mode });
+                }
+                navigator.serviceWorker.ready.then(registration => {
+                    if (registration.active) {
+                        registration.active.postMessage({ type: 'SET_NETWORK_MODE', mode });
+                    }
+                }).catch(() => {});
+                updateNetworkStatusIndicator();
+            };
+
+            reportNetworkMode();
+            if (connection && typeof connection.addEventListener === 'function') {
+                connection.addEventListener('change', reportNetworkMode);
+            }
+            window.addEventListener('online', reportNetworkMode);
+            window.addEventListener('offline', reportNetworkMode);
+        })
         .catch(err => console.error('SW registration failed:', err));
 }
 });
 
 // --- イベントリスナー登録 ---
+function updateNetworkStatusIndicator() {
+    if (!networkStatusIndicator) return;
+
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const isCellular = navigator.onLine && connection && (connection.type === 'cellular' || connection.effectiveType === '2g' || connection.effectiveType === '3g' || connection.effectiveType === 'slow-2g');
+
+    if (isCellular) {
+        networkStatusIndicator.textContent = 'モバイル通信';
+        networkStatusIndicator.classList.remove('hidden');
+        return;
+    }
+
+    networkStatusIndicator.classList.add('hidden');
+}
+
 function initEventListeners() {
     // 1. HOME画面のボタン
     btnOpenFile.addEventListener('click', () => {
