@@ -1,0 +1,12 @@
+{
+  "name": "musicrunner-v2",
+  "version": "3.0.7",
+  "private": true,
+  "description": "Music Runner Web Audio Player",
+  "scripts": {
+    "build": "node build_minify.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

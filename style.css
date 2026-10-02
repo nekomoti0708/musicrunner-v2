@@ -961,6 +961,122 @@ input[type="range"]::-webkit-slider-thumb:active {
     accent-color: #a899e6;
 }
 
+.sleep-mode-group {
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(161, 146, 215, 0.15);
+}
+
+.sleep-mode-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.sleep-mode-row input {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #362e4f;
+    border-radius: 8px;
+    background: #1a132a;
+    color: #e2e0e7;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+
+.sleep-mode-toggle-btn {
+    padding: 10px 14px;
+    border: 1px solid #54458a;
+    border-radius: 8px;
+    background: rgba(168, 153, 230, 0.12);
+    color: #e2e0e7;
+    font: inherit;
+    cursor: pointer;
+}
+
+.sleep-mode-toggle-btn.active {
+    background: rgba(213, 116, 116, 0.18);
+    border-color: rgba(213, 116, 116, 0.5);
+}
+
+.sleep-mode-indicator {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 40;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    color: rgba(214, 204, 244, 0.75);
+    background: rgba(17, 12, 26, 0.38);
+    border: 1px solid rgba(160, 146, 214, 0.12);
+    font-family: inherit;
+    cursor: pointer;
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+}
+
+.sleep-mode-indicator:focus-visible,
+.sleep-mode-confirm-button:focus-visible {
+    outline: 2px solid #cbbffc;
+    outline-offset: 3px;
+}
+
+.sleep-mode-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(8, 5, 14, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.sleep-mode-confirm-dialog {
+    width: min(100%, 340px);
+    padding: 24px;
+    border: 1px solid rgba(160, 146, 214, 0.24);
+    border-radius: 12px;
+    background: #120d1e;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48);
+}
+
+.sleep-mode-confirm-dialog h2 {
+    color: #e2e0e7;
+    font-size: 1rem;
+    font-weight: 500;
+    text-align: center;
+}
+
+.sleep-mode-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 22px;
+}
+
+.sleep-mode-confirm-button {
+    min-height: 40px;
+    padding: 8px 14px;
+    border: 1px solid #362e4f;
+    border-radius: 8px;
+    background: #1a132a;
+    color: #e2e0e7;
+    font: inherit;
+    cursor: pointer;
+}
+
+.sleep-mode-confirm-button.primary {
+    border-color: rgba(213, 116, 116, 0.5);
+    background: rgba(213, 116, 116, 0.18);
+}
+
 /* 固定フォルダー表示バー (絶対配置オーバーレイでスクロール領域の高さを一切変動させない) */
 .sticky-folder-bar {
     position: absolute;

@@ -16,6 +16,16 @@
 
 <body>
     <div id="app">
+        <button id="sleep-mode-indicator" class="sleep-mode-indicator hidden" type="button" aria-label="スリープモードの終了確認を開く" aria-haspopup="dialog" aria-live="polite">残り 00:00</button>
+        <div id="sleep-mode-confirm-overlay" class="sleep-mode-confirm-overlay hidden" role="presentation">
+            <section class="sleep-mode-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="sleep-mode-confirm-title">
+                <h2 id="sleep-mode-confirm-title">スリープモードを終了しますか？</h2>
+                <div class="sleep-mode-confirm-actions">
+                    <button id="sleep-mode-confirm-cancel" type="button" class="sleep-mode-confirm-button">キャンセル</button>
+                    <button id="sleep-mode-confirm-stop" type="button" class="sleep-mode-confirm-button primary">終了する</button>
+                </div>
+            </section>
+        </div>
         <!-- 1. HOME画面 -->
         <section id="home-screen" class="screen active">
             <div class="home-container">
@@ -305,6 +315,14 @@
                     <div class="setting-group">
                         <div class="setting-label"><label for="visualizer-energy">反応</label><output id="visualizer-energy-value">35</output></div>
                         <input type="range" id="visualizer-energy" min="0" max="100" value="35" step="1">
+                    </div>
+
+                    <div class="setting-group sleep-mode-group">
+                        <label for="sleep-mode-minutes">スリープモード</label>
+                        <div class="sleep-mode-row">
+                            <input id="sleep-mode-minutes" type="number" min="1" step="1" value="30" inputmode="numeric" aria-label="停止までの分数">
+                            <button id="sleep-mode-toggle" type="button" class="sleep-mode-toggle-btn">スタート</button>
+                        </div>
                     </div>
                 </div>
                 <div class="panel-header" id="settings-header">

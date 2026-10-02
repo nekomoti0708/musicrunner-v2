@@ -1,0 +1,10 @@
+# 一時ビルド出力フォルダ
+.dist_build/
+
+# 依存パッケージ
+node_modules/
+
+# OSやエディタの生成物
+.DS_Store
+Thumbs.db
+*.log

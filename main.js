@@ -437,6 +437,28 @@ function updateNetworkStatusIndicator() {
 }
 
 function initEventListeners() {
+    const sleepModeIndicator = document.getElementById('sleep-mode-indicator');
+    const sleepModeConfirmOverlay = document.getElementById('sleep-mode-confirm-overlay');
+    const sleepModeConfirmStop = document.getElementById('sleep-mode-confirm-stop');
+    const sleepModeConfirmCancel = document.getElementById('sleep-mode-confirm-cancel');
+
+    sleepModeIndicator?.addEventListener('click', () => {
+        if (sleepModeActive) setSleepModeConfirmDialogOpen(true);
+    });
+    sleepModeConfirmOverlay?.addEventListener('click', (event) => {
+        if (event.target === sleepModeConfirmOverlay) setSleepModeConfirmDialogOpen(false);
+    });
+    sleepModeConfirmCancel?.addEventListener('click', () => setSleepModeConfirmDialogOpen(false));
+    sleepModeConfirmStop?.addEventListener('click', () => {
+        setSleepModeConfirmDialogOpen(false);
+        stopSleepModeTimer();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && sleepModeConfirmOverlay && !sleepModeConfirmOverlay.classList.contains('hidden')) {
+            setSleepModeConfirmDialogOpen(false);
+        }
+    });
+
     // 1. HOME画面のボタン
     btnOpenFile.addEventListener('click', () => {
         // File System Access API があれば使う、なければ従来の input file
@@ -570,6 +592,7 @@ function playMedia() {
         if ('mediaSession' in navigator) {
             navigator.mediaSession.playbackState = 'playing';
         }
+        syncScreenWakeLockState();
     }).catch(err => {
         if (err.name !== 'AbortError') {
             console.error('Play failed:', err);
@@ -585,6 +608,7 @@ function pauseMedia() {
     if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused';
     }
+    syncScreenWakeLockState();
 }
 
 function updateProgressBar() {
@@ -612,6 +636,135 @@ function updateLoopButtonUI() {
     } else {
         btnLoop.classList.remove('active');
     }
+}
+
+let sleepModeActive = false;
+let sleepModeDeadline = 0;
+let sleepModeIntervalId = null;
+let wakeLockSentinel = null;
+
+function formatSleepModeRemaining(ms) {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function updateSleepModeIndicator() {
+    const indicator = document.getElementById('sleep-mode-indicator');
+    if (!indicator) return;
+
+    if (!sleepModeActive || sleepModeDeadline <= 0) {
+        indicator.classList.add('hidden');
+        indicator.textContent = '残り 00:00';
+        return;
+    }
+
+    const remaining = Math.max(0, sleepModeDeadline - Date.now());
+    indicator.textContent = `残り ${formatSleepModeRemaining(remaining)}`;
+    indicator.classList.remove('hidden');
+}
+
+function updateSleepModeToggleButton() {
+    const toggleBtn = document.getElementById('sleep-mode-toggle');
+    if (!toggleBtn) return;
+    toggleBtn.textContent = sleepModeActive ? 'ストップ' : 'スタート';
+    toggleBtn.classList.toggle('active', sleepModeActive);
+}
+
+function setSleepModeConfirmDialogOpen(isOpen) {
+    const overlay = document.getElementById('sleep-mode-confirm-overlay');
+    const indicator = document.getElementById('sleep-mode-indicator');
+    const cancelButton = document.getElementById('sleep-mode-confirm-cancel');
+    if (!overlay) return;
+
+    overlay.classList.toggle('hidden', !isOpen);
+    if (isOpen) {
+        cancelButton?.focus();
+    } else if (indicator && !indicator.classList.contains('hidden')) {
+        indicator.focus();
+    }
+}
+
+async function requestScreenWakeLock() {
+    if (!('wakeLock' in navigator)) {
+        console.info('Wake Lock API is not supported in this browser; screen sleep will not be controlled here.');
+        return;
+    }
+    if (wakeLockSentinel) return;
+
+    try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        wakeLockSentinel.addEventListener('release', () => {
+            wakeLockSentinel = null;
+        });
+    } catch (err) {
+        console.info('Wake Lock request failed:', err.name || err.message || String(err));
+    }
+}
+
+async function releaseScreenWakeLock() {
+    if (!wakeLockSentinel) return;
+    try {
+        await wakeLockSentinel.release();
+    } catch (err) {
+        console.info('Wake Lock release failed:', err.name || err.message || String(err));
+    } finally {
+        wakeLockSentinel = null;
+    }
+}
+
+function syncScreenWakeLockState() {
+    const shouldKeepAwake = sleepModeActive || (!mainVideo.paused && !mainVideo.ended);
+    if (shouldKeepAwake) {
+        requestScreenWakeLock();
+    } else {
+        releaseScreenWakeLock();
+    }
+}
+
+function stopSleepModeTimer() {
+    if (sleepModeIntervalId) {
+        clearInterval(sleepModeIntervalId);
+        sleepModeIntervalId = null;
+    }
+    sleepModeActive = false;
+    sleepModeDeadline = 0;
+    updateSleepModeIndicator();
+    updateSleepModeToggleButton();
+    syncScreenWakeLockState();
+}
+
+function startSleepModeTimer() {
+    const input = document.getElementById('sleep-mode-minutes');
+    if (!input) return;
+
+    const minutes = Number(input.value);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+        input.focus();
+        input.select();
+        return;
+    }
+
+    stopSleepModeTimer();
+    sleepModeActive = true;
+    sleepModeDeadline = Date.now() + minutes * 60 * 1000;
+    updateSleepModeIndicator();
+    updateSleepModeToggleButton();
+
+    sleepModeIntervalId = setInterval(() => {
+        if (!sleepModeActive) return;
+
+        const remaining = sleepModeDeadline - Date.now();
+        updateSleepModeIndicator();
+
+        if (remaining <= 0) {
+            stopSleepModeTimer();
+            pauseMedia();
+        }
+    }, 250);
+
+    syncScreenWakeLockState();
 }
 
 // --- ファイルを開く処理 (File System Access API) ---
@@ -2860,7 +3013,29 @@ function initVisualizerSettingsUI() {
     const button = document.getElementById('btn-settings');
     const panel = document.getElementById('settings-panel');
     const header = document.getElementById('settings-header');
+    const sleepModeToggleButton = document.getElementById('sleep-mode-toggle');
+    const sleepModeMinutesInput = document.getElementById('sleep-mode-minutes');
     if (!button || !panel || !header) return;
+
+    if (sleepModeToggleButton && sleepModeMinutesInput) {
+        sleepModeToggleButton.addEventListener('click', () => {
+            if (sleepModeActive) {
+                stopSleepModeTimer();
+            } else {
+                startSleepModeTimer();
+            }
+        });
+        sleepModeMinutesInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                if (sleepModeActive) {
+                    stopSleepModeTimer();
+                } else {
+                    startSleepModeTimer();
+                }
+            }
+        });
+    }
 
     try {
         const saved = JSON.parse(localStorage.getItem(VISUALIZER_SETTINGS_KEY) || '{}');
