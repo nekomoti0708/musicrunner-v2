@@ -1,0 +1,1 @@
+window.audioPresets=[{id:"normal",name:"normal",bass:0,treble:0,dist:0,rev:0},{id:"live",name:"live",bass:-5,treble:-2,dist:4,rev:50},{id:"radio",name:"radio",bass:-12,treble:-18,dist:20,rev:0},{id:"club",name:"club",bass:2,treble:-20,dist:1,rev:2}];
