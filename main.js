@@ -290,7 +290,7 @@ let progressiveLoadToken = 0;
 let progressiveTreeLoading = false;
 let pendingProgressiveStateSave = false;
 let pendingFilesystemMoves = 0;
-const pendingMoveNodes = new WeakSet();
+const pendingFilesystemMoveRecords = new Set();
 
 const TREE_SCAN_UI_YIELD_EVERY = 100;
 
@@ -1204,6 +1204,27 @@ function isDescendantPath(path, possibleParent) {
     return path === possibleParent || path.startsWith(`${possibleParent}/`);
 }
 
+function hasPendingFilesystemMoveConflict(sourceNode, targetNode, sourcePath, targetPath, sourceParentPath, targetParentPath) {
+    for (const pendingMove of pendingFilesystemMoveRecords) {
+        if (pendingMove.node === sourceNode || pendingMove.node === targetNode) return true;
+
+        const pendingFolderPaths = pendingMove.node.kind === 'directory'
+            ? [pendingMove.sourcePath, pendingMove.destinationPath]
+            : [];
+        if (pendingFolderPaths.some(folderPath => [sourcePath, targetPath, sourceParentPath, targetParentPath]
+            .some(path => isDescendantPath(path, folderPath)))) {
+            return true;
+        }
+
+        if (sourceNode.kind === 'directory' &&
+            [pendingMove.sourcePath, pendingMove.targetParentPath]
+                .some(path => isDescendantPath(path, sourcePath))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function updateMoveProgress(node, progress) {
     const transferRatio = progress.totalBytes > 0
             ? progress.completedBytes / progress.totalBytes
@@ -1385,6 +1406,7 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
     const sourceNode = fileByPath.get(sourcePath) || folderByPath.get(sourcePath);
     const targetNode = fileByPath.get(targetPath) || folderByPath.get(targetPath);
     if (!sourceNode || !targetNode || sourceNode === targetNode) return;
+    if (sourceNode.moveInProgress || targetNode.moveInProgress) return;
     if (position === 'inside' && targetNode.kind !== 'directory') return;
 
     const sourceParentPath = getParentFolderPath(sourcePath);
@@ -1393,10 +1415,7 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
         : getParentFolderPath(targetPath);
     if (sourceNode.kind === 'directory' && isDescendantPath(targetParentPath, sourcePath)) return;
 
-    const sourceParentNode = sourceParentPath ? folderByPath.get(sourceParentPath) : null;
-    const targetParentNode = targetParentPath ? folderByPath.get(targetParentPath) : null;
-    const affectedNodes = [...new Set([sourceNode, targetNode, sourceParentNode, targetParentNode].filter(Boolean))];
-    if (affectedNodes.some(node => pendingMoveNodes.has(node))) return;
+    if (hasPendingFilesystemMoveConflict(sourceNode, targetNode, sourcePath, targetPath, sourceParentPath, targetParentPath)) return;
 
     const sourceChildren = getChildrenForPath(sourceParentPath);
     const targetChildren = getChildrenForPath(targetParentPath);
@@ -1426,17 +1445,20 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
     if (sameParent && sourceIndex < targetIndex) targetIndex--;
     targetChildren.splice(targetIndex, 0, sourceNode);
 
+    let destinationPath = sourcePath;
     if (!sameParent) {
-        const newPath = targetParentPath ? `${targetParentPath}/${sourceNode.name}` : sourceNode.name;
-        updateNodePaths(sourceNode, sourcePath, newPath);
+        destinationPath = targetParentPath ? `${targetParentPath}/${sourceNode.name}` : sourceNode.name;
+        updateNodePaths(sourceNode, sourcePath, destinationPath);
         sourceNode.parentHandle = targetParentHandle;
     }
 
+    let pendingMoveRecord = null;
     if (needsFilesystemMove) {
         sourceNode.moveInProgress = true;
         sourceNode.moveProgress = 0;
         pendingFilesystemMoves++;
-        affectedNodes.forEach(node => pendingMoveNodes.add(node));
+        pendingMoveRecord = { node: sourceNode, sourcePath, destinationPath, targetParentPath };
+        pendingFilesystemMoveRecords.add(pendingMoveRecord);
     }
 
     flatFiles = flattenTreeFiles(currentTreeItems);
@@ -1490,7 +1512,7 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
                 clearTreeNodeMovePresentation(sourceNode);
             }
         } finally {
-            affectedNodes.forEach(node => pendingMoveNodes.delete(node));
+            if (pendingMoveRecord) pendingFilesystemMoveRecords.delete(pendingMoveRecord);
             finishPendingFilesystemMove();
         }
     })();
@@ -1619,7 +1641,7 @@ function initFileTreeInteraction() {
         if (e.touches.length !== 1 || e.target.closest('.checkbox-container')) return;
         const touch = e.touches[0];
         const row = e.target.closest('.tree-row');
-        if (!row || row.dataset.rootBulk) return;
+        if (!row || row.dataset.rootBulk || row.classList.contains('move-pending')) return;
 
         touchDragState = {
             row,
@@ -1664,7 +1686,8 @@ function initFileTreeInteraction() {
         const state = touchDragState;
         const touch = e.changedTouches[0];
         const targetRow = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.tree-row');
-        if (state.active && targetRow && targetRow.dataset.path !== state.row.dataset.path) {
+        if (state.active && targetRow && !targetRow.classList.contains('move-pending') &&
+            targetRow.dataset.path !== state.row.dataset.path) {
             try {
                 await moveTreeNode(state.row.dataset.path, targetRow.dataset.path, {
                     position: getTreeDropPosition(targetRow, touch.clientY)
@@ -1685,7 +1708,7 @@ function initFileTreeInteraction() {
 
     fileTreeContainer.addEventListener('dragstart', (e) => {
         const row = e.target.closest('.tree-row');
-        if (!row || row.dataset.rootBulk) return;
+        if (!row || row.dataset.rootBulk || row.classList.contains('move-pending')) return;
         draggedTreePath = row.dataset.path;
         row.classList.add('sortable-dragging');
         e.dataTransfer.effectAllowed = 'move';
@@ -1694,7 +1717,11 @@ function initFileTreeInteraction() {
 
     fileTreeContainer.addEventListener('dragover', (e) => {
         const row = e.target.closest('.tree-row');
-        if (!draggedTreePath || !row || row.dataset.rootBulk || row.dataset.path === draggedTreePath) return;
+        if (!draggedTreePath) return;
+        if (!row || row.dataset.rootBulk || row.dataset.path === draggedTreePath || row.classList.contains('move-pending')) {
+            updateTouchDragTarget(null, e.clientY);
+            return;
+        }
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         updateTouchDragTarget(row, e.clientY);
@@ -1703,7 +1730,8 @@ function initFileTreeInteraction() {
     fileTreeContainer.addEventListener('drop', async (e) => {
         e.preventDefault();
         const row = e.target.closest('.tree-row');
-        if (row && draggedTreePath && !row.dataset.rootBulk && row.dataset.path !== draggedTreePath) {
+        if (row && draggedTreePath && !row.dataset.rootBulk && !row.classList.contains('move-pending') &&
+            row.dataset.path !== draggedTreePath) {
             await moveTreeNode(draggedTreePath, row.dataset.path, {
                 position: getTreeDropPosition(row, e.clientY)
             });
@@ -1789,7 +1817,8 @@ function runTouchAutoScroll() {
 }
 
 function updateTouchDragTarget(row, clientY) {
-    if (!draggedTreePath || !row || row.dataset.rootBulk || row.dataset.path === draggedTreePath) {
+    if (!draggedTreePath || !row || row.dataset.rootBulk || row.dataset.path === draggedTreePath ||
+        row.classList.contains('move-pending')) {
         if (dragOverRow) {
             dragOverRow.classList.remove('drag-over', 'drag-over-before', 'drag-over-after');
         }
