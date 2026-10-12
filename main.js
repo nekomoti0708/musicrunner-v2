@@ -1205,10 +1205,14 @@ function isDescendantPath(path, possibleParent) {
 }
 
 function updateMoveProgress(node, progress) {
-    const totalWork = progress.totalBytes + progress.totalFiles;
-    const completedWork = progress.completedBytes + progress.completedFiles;
-    const percent = totalWork === 0 ? 100 : Math.min(100, Math.floor(completedWork / totalWork * 100));
-    node.moveProgress = Math.max(node.moveProgress || 0, percent);
+    const totalWork = progress.totalBytes + progress.totalZeroByteFiles;
+    const completedWork = progress.completedBytes + progress.completedZeroByteFiles;
+    const percent = progress.finished
+        ? 100
+        : totalWork === 0
+            ? 0
+            : Math.min(99, Math.floor(completedWork / totalWork * 100));
+    node.moveProgress = progress.finished ? 100 : Math.max(node.moveProgress || 0, percent);
 
     const label = treeNodeElements.get(node.path)?.querySelector('.row-label');
     if (!label) return;
@@ -1243,7 +1247,7 @@ async function copyFileHandle(sourceHandle, targetDirectoryHandle, name, progres
             progress.completedBytes += file.size;
         }
         await writable.close();
-        progress.completedFiles++;
+        if (file.size === 0) progress.completedZeroByteFiles++;
         updateMoveProgress(node, progress);
     } catch (err) {
         await writable.abort().catch(() => {});
@@ -1280,7 +1284,7 @@ async function getDirectoryByRelativePath(rootHandle, relativePath) {
 async function copyDirectoryHandle(sourceHandle, targetDirectoryHandle, name, progress, node) {
     const entries = await collectDirectoryEntries(sourceHandle);
     progress.totalBytes = entries.reduce((total, entry) => total + (entry.file?.size || 0), 0);
-    progress.totalFiles = entries.filter(entry => entry.kind === 'file').length;
+    progress.totalZeroByteFiles = entries.filter(entry => entry.kind === 'file' && entry.file.size === 0).length;
     const targetRoot = await targetDirectoryHandle.getDirectoryHandle(name, { create: true });
 
     for (const entry of entries) {
@@ -1294,7 +1298,6 @@ async function copyDirectoryHandle(sourceHandle, targetDirectoryHandle, name, pr
         const destination = await getDirectoryByRelativePath(targetRoot, parentPath);
         await copyFileHandle(entry.handle, destination, fileName, progress, node, entry.file);
     }
-    if (progress.totalFiles === 0) updateMoveProgress(node, { ...progress, totalWork: 0, totalBytes: 0 });
 }
 
 async function moveHandleByCopy(sourceNode, sourceParentHandle, targetDirectoryHandle, progress) {
@@ -1304,7 +1307,7 @@ async function moveHandleByCopy(sourceNode, sourceParentHandle, targetDirectoryH
     if (sourceHandle.kind === 'file') {
         const sourceFile = await sourceHandle.getFile();
         progress.totalBytes = sourceFile.size;
-        progress.totalFiles = 1;
+        progress.totalZeroByteFiles = sourceFile.size === 0 ? 1 : 0;
         await copyFileHandle(sourceHandle, targetDirectoryHandle, sourceNode.name, progress, sourceNode, sourceFile);
         await sourceParentHandle.removeEntry(sourceNode.name);
     } else {
@@ -1429,7 +1432,13 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
 
     void (async () => {
         let filesystemMoveCompleted = false;
-        const progress = { totalBytes: 0, totalFiles: 0, completedBytes: 0, completedFiles: 0 };
+        const progress = {
+            totalBytes: 0,
+            totalZeroByteFiles: 0,
+            completedBytes: 0,
+            completedZeroByteFiles: 0,
+            finished: false
+        };
         try {
             if (typeof sourceNode.handle.move === 'function') {
                 try {
@@ -1449,7 +1458,8 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
             } catch (err) {
                 console.warn('移動後のファイルハンドル更新に失敗:', err);
             }
-            updateMoveProgress(sourceNode, { totalBytes: 1, totalFiles: 0, completedBytes: 1, completedFiles: 0 });
+            progress.finished = true;
+            updateMoveProgress(sourceNode, progress);
             await yieldToUI();
             clearTreeNodeMovePresentation(sourceNode);
         } catch (err) {

@@ -15,6 +15,7 @@ if exist "%LocalAppData%\Programs\Git\cmd\git.exe" set "GIT_EXE=%LocalAppData%\P
 "%GIT_EXE%" --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Git is not found. Install Git for Windows or add it to PATH.
+    Java
     pause
     exit /b 1
 )
