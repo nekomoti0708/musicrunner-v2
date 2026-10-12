@@ -281,80 +281,14 @@ const btnNext = document.getElementById('btn-next');
 const fileTreePanel = document.getElementById('file-tree-panel');
 const fileTreeContainer = document.getElementById('file-tree-container');
 
-// 読み込みオーバーレイ要素
-const loadingOverlay = document.getElementById('loading-overlay');
-const loadingTitle = document.getElementById('loading-title');
-const loadingStatus = document.getElementById('loading-status');
-
 // アイコン表示切り替え用
 const iconLoop = btnLoop.querySelector('.icon-loop');
 const iconPlay = btnPlayPause.querySelector('.icon-play');
 const iconPause = btnPlayPause.querySelector('.icon-pause');
 
-// --- 読み込みオーバーレイ制御 ---
-let loadingScanCount = 0;
-let loadingScanRaf = 0;
-let loadingActive = false;
-let loadingTotalEntries = 0;
 let progressiveLoadToken = 0;
 let progressiveTreeLoading = false;
 let pendingProgressiveStateSave = false;
-
-function showLoading(title = 'フォルダーを読み込んでいます') {
-    if (!loadingOverlay) return;
-    loadingTitle.textContent = title;
-    loadingStatus.textContent = 'ファイルをスキャン中...';
-    loadingOverlay.classList.remove('error');
-    loadingOverlay.classList.remove('active');
-    loadingScanCount = 0;
-    loadingTotalEntries = 0;
-    loadingActive = true;
-}
-
-function hideLoading() {
-    if (!loadingOverlay) return;
-    loadingOverlay.classList.remove('active', 'error');
-    loadingActive = false;
-    if (loadingScanRaf) {
-        cancelAnimationFrame(loadingScanRaf);
-        loadingScanRaf = 0;
-    }
-}
-
-function showLoadingError(message) {
-    if (!loadingOverlay) return;
-    loadingTitle.textContent = '読み込みに失敗しました';
-    loadingStatus.textContent = message;
-    loadingOverlay.classList.add('active', 'error');
-    // 一定時間後に自動的に閉じる
-    setTimeout(() => {
-        hideLoading();
-    }, 2500);
-}
-
-function updateLoadingCount() {
-    if (!loadingActive) return;
-    loadingTotalEntries++;
-    loadingScanCount = loadingTotalEntries;
-    // requestAnimationFrame で描画をスロットリング（毎フレーム1回だけ更新）
-    if (!loadingScanRaf) {
-        loadingScanRaf = requestAnimationFrame(() => {
-            loadingScanRaf = 0;
-            if (loadingActive) {
-                loadingStatus.textContent = `${loadingScanCount} 個のエントリをスキャン中...`;
-            }
-        });
-    }
-}
-
-function updateLoadingStatus(message) {
-    if (!loadingActive || !loadingStatus) return;
-    if (loadingScanRaf) {
-        cancelAnimationFrame(loadingScanRaf);
-        loadingScanRaf = 0;
-    }
-    loadingStatus.textContent = message;
-}
 
 const TREE_SCAN_UI_YIELD_EVERY = 100;
 
@@ -585,7 +519,6 @@ function goBackToHome() {
         progressiveLoadToken++;
         progressiveTreeLoading = false;
         pendingProgressiveStateSave = false;
-        hideLoading();
     }
     showScreen('home');
     renderRecentFolders();
@@ -815,7 +748,6 @@ async function handleOpenFilePicker() {
         playlistQueue = [];
         pauseMedia();
         showNoSelectionMessage();
-        showLoading('ファイルを準備しています');
         showScreen('play');
         await yieldToUI();
 
@@ -823,7 +755,6 @@ async function handleOpenFilePicker() {
         for (const handle of fileHandles) {
             if (loadToken !== progressiveLoadToken) return;
             processedEntries++;
-            updateLoadingCount();
             flatFiles.push({
                 kind: 'file',
                 name: handle.name,
@@ -832,14 +763,12 @@ async function handleOpenFilePicker() {
             });
             if (processedEntries % TREE_SCAN_UI_YIELD_EVERY === 0) {
                 playlistQueue = [...flatFiles];
-                updateLoadingStatus(`${processedEntries} / ${fileHandles.length} 個のファイルを処理中...`);
                 await yieldToUI();
                 if (loadToken !== progressiveLoadToken) return;
             }
         }
         playlistQueue = [...flatFiles];
         finishProgressiveTreeLoading(loadToken);
-        hideLoading();
 
         if (playlistQueue.length > 0) {
             playNode(playlistQueue[0]);
@@ -885,10 +814,6 @@ async function handleOpenLastDirectory() {
         }
         activeFolderName = folderName;
 
-        // 読み込みオーバーレイを表示
-        showLoading(`「${folderName}」を復元しています`);
-        loadingStatus.textContent = `${cachedFolderFiles.length} 個のファイルを処理中...`;
-
         try {
             const stateKey = `musicrunner_state_${folderName}`;
             const savedState = localStorage.getItem(stateKey);
@@ -909,13 +834,12 @@ async function handleOpenLastDirectory() {
             finalizeProgressiveTree();
 
             finishProgressiveTreeLoading(loadToken);
-            hideLoading();
             restorePlayback();
         } catch (err) {
             if (loadToken !== progressiveLoadToken) return;
             finishProgressiveTreeLoading(loadToken, false);
             console.error('handleOpenLastDirectory cache restore error:', err);
-            showLoadingError('フォルダーの復元中にエラーが発生しました');
+            alert('フォルダーの復元中にエラーが発生しました');
         }
         return;
     }
@@ -979,7 +903,6 @@ async function loadDirectory(dirHandle) {
 
     pauseMedia();
     showNoSelectionMessage();
-    showLoading(`「${dirHandle.name}」を読み込んでいます`);
     renderFileTree(rootItems);
     showScreen('play');
 
@@ -1000,13 +923,12 @@ async function loadDirectory(dirHandle) {
         finalizeProgressiveTree();
 
         finishProgressiveTreeLoading(loadToken);
-        hideLoading();
         restorePlayback();
     } catch (err) {
         if (loadToken !== progressiveLoadToken) return;
         finishProgressiveTreeLoading(loadToken, false);
         console.error('loadDirectory error:', err);
-        showLoadingError('フォルダーの読み込み中にエラーが発生しました');
+        alert('フォルダーの読み込み中にエラーが発生しました');
     }
 }
 
@@ -1021,7 +943,6 @@ async function traverseDirectory(dirHandle, relativePath = '', parentNode = null
     for await (const entry of dirHandle.values()) {
         if (loadToken !== progressiveLoadToken) return false;
         entryCount++;
-        updateLoadingCount();
 
         const entryPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
         if (entry.kind === 'file') {
@@ -1081,7 +1002,6 @@ async function traverseDirectory(dirHandle, relativePath = '', parentNode = null
     if (!order && items.length > 0) {
         await writeFolderOrder(dirHandle, items, relativePath || null);
     }
-    updateLoadingStatus(`${loadingTotalEntries} 個のエントリを読み込み中...`);
     return items.some(item => item.kind === 'file' || item.children?.length > 0);
 }
 
@@ -2406,20 +2326,17 @@ async function handleFallbackFiles(e) {
     playlistQueue = [];
     pauseMedia();
     showNoSelectionMessage();
-    showLoading('ファイルを準備しています');
     showScreen('play');
 
     await yieldToUI();
     for (let index = 0; index < files.length; index++) {
         if (loadToken !== progressiveLoadToken) return;
         const file = files[index];
-        updateLoadingCount();
         if (isMediaFile(file.name)) {
             flatFiles.push({ kind: 'file', name: file.name, path: file.name, file });
         }
         if ((index + 1) % TREE_SCAN_UI_YIELD_EVERY === 0) {
             playlistQueue = [...flatFiles];
-            updateLoadingStatus(`${index + 1} / ${files.length} 個のファイルを処理中...`);
             await yieldToUI();
         }
     }
@@ -2427,7 +2344,6 @@ async function handleFallbackFiles(e) {
 
     playlistQueue = [...flatFiles];
     finishProgressiveTreeLoading(loadToken);
-    hideLoading();
     if (playlistQueue.length > 0) {
         playNode(playlistQueue[0]);
     } else {
@@ -2449,10 +2365,6 @@ async function handleFallbackFolder(e) {
     if (files[0].webkitRelativePath) {
         folderName = files[0].webkitRelativePath.split('/')[0];
     }
-
-    // 読み込みオーバーレイを表示
-    showLoading(`「${folderName}」を読み込んでいます`);
-    loadingStatus.textContent = `${files.length} 個のファイルを処理中...`;
 
     try {
         // Load saved UI state if exists
@@ -2483,13 +2395,12 @@ async function handleFallbackFolder(e) {
         finalizeProgressiveTree();
 
         finishProgressiveTreeLoading(loadToken);
-        hideLoading();
         restorePlayback();
     } catch (err) {
         if (loadToken !== progressiveLoadToken) return;
         finishProgressiveTreeLoading(loadToken, false);
         console.error('handleFallbackFolder error:', err);
-        showLoadingError('フォルダーの読み込み中にエラーが発生しました');
+        alert('フォルダーの読み込み中にエラーが発生しました');
     }
 }
 
@@ -2502,7 +2413,6 @@ async function buildFallbackTree(files, rootName, loadToken) {
     for (const file of files) {
         if (loadToken !== progressiveLoadToken) return;
         processedEntries++;
-        updateLoadingCount();
         if (!isMediaFile(file.name)) {
             if (processedEntries % TREE_SCAN_UI_YIELD_EVERY === 0) {
                 await yieldToUI();
@@ -2540,7 +2450,6 @@ async function buildFallbackTree(files, rootName, loadToken) {
         processedFiles++;
         if (processedEntries % TREE_SCAN_UI_YIELD_EVERY === 0) {
             updatePlaylistQueue();
-            updateLoadingStatus(`${processedEntries} / ${files.length} 個のエントリを処理中...`);
             await yieldToUI();
             if (loadToken !== progressiveLoadToken) return;
         }
@@ -2567,7 +2476,6 @@ async function buildFallbackTree(files, rootName, loadToken) {
     refreshFolderCheckboxes(rootItems);
     syncProgressiveRootBulkRow();
     updatePlaylistQueue();
-    updateLoadingStatus(`${processedFiles} 個のメディアを追加しました`);
     return rootItems;
 }
 
