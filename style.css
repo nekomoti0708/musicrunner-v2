@@ -1180,6 +1180,10 @@ input[type="range"]::-webkit-slider-thumb:active {
     transform: scale(0.985);
 }
 
+.tree-row.move-pending {
+    cursor: progress;
+}
+
 .tree-row.drag-over {
     background-color: rgba(168, 153, 230, 0.18);
 }
@@ -1256,6 +1260,36 @@ input[type="range"]::-webkit-slider-thumb:active {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.row-label-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.row-label.is-moving {
+    position: relative;
+    min-width: 0;
+    padding: 3px 36px 4px 5px;
+    margin: -3px 0 -4px -5px;
+    border-radius: 4px;
+    background: linear-gradient(
+        90deg,
+        rgba(168, 153, 230, 0.34) 0 var(--move-progress),
+        rgba(168, 153, 230, 0.06) var(--move-progress) 100%
+    );
+}
+
+.row-label.is-moving::after {
+    content: attr(data-progress) '%';
+    position: absolute;
+    top: 50%;
+    right: 5px;
+    transform: translateY(-50%);
+    color: #e2e0e7;
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
 }
 
 /* アイコン */

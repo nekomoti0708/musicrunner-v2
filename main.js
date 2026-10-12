@@ -289,6 +289,8 @@ const iconPause = btnPlayPause.querySelector('.icon-pause');
 let progressiveLoadToken = 0;
 let progressiveTreeLoading = false;
 let pendingProgressiveStateSave = false;
+let pendingFilesystemMoves = 0;
+const pendingMoveNodes = new WeakSet();
 
 const TREE_SCAN_UI_YIELD_EVERY = 100;
 
@@ -299,11 +301,21 @@ function yieldToUI() {
 function finishProgressiveTreeLoading(loadToken, savePendingState = true) {
     if (loadToken !== progressiveLoadToken) return false;
     progressiveTreeLoading = false;
-    if (pendingProgressiveStateSave) {
+    if (pendingProgressiveStateSave && pendingFilesystemMoves === 0) {
         pendingProgressiveStateSave = false;
         if (savePendingState) scheduleSaveCurrentState();
+    } else if (!savePendingState && pendingFilesystemMoves === 0) {
+        pendingProgressiveStateSave = false;
     }
     return true;
+}
+
+function finishPendingFilesystemMove() {
+    pendingFilesystemMoves = Math.max(0, pendingFilesystemMoves - 1);
+    if (pendingFilesystemMoves === 0 && !progressiveTreeLoading && pendingProgressiveStateSave) {
+        pendingProgressiveStateSave = false;
+        scheduleSaveCurrentState();
+    }
 }
 
 // --- 初期化処理 ---
@@ -1126,7 +1138,7 @@ async function saveFolderMetadata() {
 }
 
 function scheduleSaveCurrentState() {
-    if (progressiveTreeLoading) {
+    if (progressiveTreeLoading || pendingFilesystemMoves > 0) {
         pendingProgressiveStateSave = true;
         return;
     }
@@ -1192,35 +1204,111 @@ function isDescendantPath(path, possibleParent) {
     return path === possibleParent || path.startsWith(`${possibleParent}/`);
 }
 
-async function copyFileHandle(sourceHandle, targetDirectoryHandle, name) {
-    const sourceFile = await sourceHandle.getFile();
-    const targetHandle = await targetDirectoryHandle.getFileHandle(name, { create: true });
-    const writable = await targetHandle.createWritable();
-    await writable.write(sourceFile);
-    await writable.close();
+function updateMoveProgress(node, progress) {
+    const totalWork = progress.totalBytes + progress.totalFiles;
+    const completedWork = progress.completedBytes + progress.completedFiles;
+    const percent = totalWork === 0 ? 100 : Math.min(100, Math.floor(completedWork / totalWork * 100));
+    node.moveProgress = Math.max(node.moveProgress || 0, percent);
+
+    const label = treeNodeElements.get(node.path)?.querySelector('.row-label');
+    if (!label) return;
+    label.dataset.progress = String(node.moveProgress);
+    label.style.setProperty('--move-progress', `${node.moveProgress}%`);
 }
 
-async function copyDirectoryHandle(sourceHandle, targetDirectoryHandle, name) {
-    const targetHandle = await targetDirectoryHandle.getDirectoryHandle(name, { create: true });
-    for await (const entry of sourceHandle.values()) {
-        if (entry.kind === 'file') {
-            await copyFileHandle(entry, targetHandle, entry.name);
-        } else if (entry.kind === 'directory') {
-            await copyDirectoryHandle(entry, targetHandle, entry.name);
+async function copyFileHandle(sourceHandle, targetDirectoryHandle, name, progress, node, sourceFile = null) {
+    const file = sourceFile || await sourceHandle.getFile();
+    const targetHandle = await targetDirectoryHandle.getFileHandle(name, { create: true });
+    const writable = await targetHandle.createWritable();
+    let reader = null;
+
+    try {
+        if (typeof file.stream === 'function') {
+            reader = file.stream().getReader();
+            let bytesSinceYield = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                await writable.write(value);
+                progress.completedBytes += value.byteLength;
+                bytesSinceYield += value.byteLength;
+                updateMoveProgress(node, progress);
+                if (bytesSinceYield >= 1024 * 1024) {
+                    bytesSinceYield = 0;
+                    await yieldToUI();
+                }
+            }
+        } else {
+            await writable.write(file);
+            progress.completedBytes += file.size;
         }
+        await writable.close();
+        progress.completedFiles++;
+        updateMoveProgress(node, progress);
+    } catch (err) {
+        await writable.abort().catch(() => {});
+        throw err;
+    } finally {
+        reader?.releaseLock();
     }
 }
 
-async function moveHandleByCopy(sourceNode, targetDirectoryHandle) {
+async function collectDirectoryEntries(directoryHandle, relativePath = '', entries = []) {
+    for await (const entry of directoryHandle.values()) {
+        const entryPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+        if (entry.kind === 'file') {
+            const file = await entry.getFile();
+            entries.push({ kind: 'file', name: entry.name, path: entryPath, handle: entry, file });
+        } else {
+            entries.push({ kind: 'directory', name: entry.name, path: entryPath });
+            await collectDirectoryEntries(entry, entryPath, entries);
+        }
+        if (entries.length % 50 === 0) await yieldToUI();
+    }
+    return entries;
+}
+
+async function getDirectoryByRelativePath(rootHandle, relativePath) {
+    let directory = rootHandle;
+    if (!relativePath) return directory;
+    for (const name of relativePath.split('/')) {
+        directory = await directory.getDirectoryHandle(name, { create: true });
+    }
+    return directory;
+}
+
+async function copyDirectoryHandle(sourceHandle, targetDirectoryHandle, name, progress, node) {
+    const entries = await collectDirectoryEntries(sourceHandle);
+    progress.totalBytes = entries.reduce((total, entry) => total + (entry.file?.size || 0), 0);
+    progress.totalFiles = entries.filter(entry => entry.kind === 'file').length;
+    const targetRoot = await targetDirectoryHandle.getDirectoryHandle(name, { create: true });
+
+    for (const entry of entries) {
+        if (entry.kind === 'directory') {
+            await getDirectoryByRelativePath(targetRoot, entry.path);
+            continue;
+        }
+        const separator = entry.path.lastIndexOf('/');
+        const parentPath = separator < 0 ? '' : entry.path.slice(0, separator);
+        const fileName = separator < 0 ? entry.path : entry.path.slice(separator + 1);
+        const destination = await getDirectoryByRelativePath(targetRoot, parentPath);
+        await copyFileHandle(entry.handle, destination, fileName, progress, node, entry.file);
+    }
+    if (progress.totalFiles === 0) updateMoveProgress(node, { ...progress, totalWork: 0, totalBytes: 0 });
+}
+
+async function moveHandleByCopy(sourceNode, sourceParentHandle, targetDirectoryHandle, progress) {
     const sourceHandle = sourceNode.handle;
-    const sourceParentHandle = sourceNode.parentHandle;
     if (!sourceHandle || !sourceParentHandle || !targetDirectoryHandle) return false;
 
     if (sourceHandle.kind === 'file') {
-        await copyFileHandle(sourceHandle, targetDirectoryHandle, sourceNode.name);
+        const sourceFile = await sourceHandle.getFile();
+        progress.totalBytes = sourceFile.size;
+        progress.totalFiles = 1;
+        await copyFileHandle(sourceHandle, targetDirectoryHandle, sourceNode.name, progress, sourceNode, sourceFile);
         await sourceParentHandle.removeEntry(sourceNode.name);
     } else {
-        await copyDirectoryHandle(sourceHandle, targetDirectoryHandle, sourceNode.name);
+        await copyDirectoryHandle(sourceHandle, targetDirectoryHandle, sourceNode.name, progress, sourceNode);
         await sourceParentHandle.removeEntry(sourceNode.name, { recursive: true });
     }
     return true;
@@ -1239,6 +1327,40 @@ async function refreshNodeHandles(node) {
     }
 }
 
+function clearTreeNodeMovePresentation(node) {
+    node.moveInProgress = false;
+    delete node.moveProgress;
+    const nodeElement = treeNodeElements.get(node.path);
+    const row = nodeElement?.firstElementChild;
+    const label = row?.querySelector('.row-label');
+    if (row) {
+        row.classList.remove('move-pending');
+        row.draggable = true;
+    }
+    if (label) {
+        label.classList.remove('is-moving');
+        label.removeAttribute('data-progress');
+        label.style.removeProperty('--move-progress');
+    }
+}
+
+function rollbackOptimisticTreeMove(node, sourcePath, sourceChildren, sourceIndex, sourceParentHandle) {
+    const currentPath = node.path;
+    const currentChildren = getChildrenForPath(getParentFolderPath(currentPath));
+    const currentIndex = currentChildren?.indexOf(node) ?? -1;
+    if (currentIndex >= 0) currentChildren.splice(currentIndex, 1);
+
+    updateNodePaths(node, currentPath, sourcePath);
+    node.parentHandle = sourceParentHandle;
+    sourceChildren.splice(Math.min(sourceIndex, sourceChildren.length), 0, node);
+    node.moveInProgress = false;
+    delete node.moveProgress;
+
+    flatFiles = flattenTreeFiles(currentTreeItems);
+    updatePlaylistQueue();
+    renderFileTree(currentTreeItems);
+}
+
 async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}) {
     const sourceNode = fileByPath.get(sourcePath) || folderByPath.get(sourcePath);
     const targetNode = fileByPath.get(targetPath) || folderByPath.get(targetPath);
@@ -1251,6 +1373,11 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
         : getParentFolderPath(targetPath);
     if (sourceNode.kind === 'directory' && isDescendantPath(targetParentPath, sourcePath)) return;
 
+    const sourceParentNode = sourceParentPath ? folderByPath.get(sourceParentPath) : null;
+    const targetParentNode = targetParentPath ? folderByPath.get(targetParentPath) : null;
+    const affectedNodes = [...new Set([sourceNode, targetNode, sourceParentNode, targetParentNode].filter(Boolean))];
+    if (affectedNodes.some(node => pendingMoveNodes.has(node))) return;
+
     const sourceChildren = getChildrenForPath(sourceParentPath);
     const targetChildren = getChildrenForPath(targetParentPath);
     if (!sourceChildren || !targetChildren) return;
@@ -1261,27 +1388,12 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
     let targetIndex = position === 'inside'
         ? targetChildren.length
         : targetChildren.indexOf(targetNode) + (position === 'after' ? 1 : 0);
-    if (targetIndex < 0) targetIndex = targetChildren.length;
+    if (targetIndex < 0) return;
 
-    if (!sameParent && sourceNode.handle) {
-        const targetHandle = getFolderHandle(targetParentPath);
-        if (!targetHandle) return;
-        try {
-            if (typeof sourceNode.handle.move === 'function') {
-                await sourceNode.handle.move(sourceNode.name, targetHandle);
-            } else {
-                await moveHandleByCopy(sourceNode, targetHandle);
-            }
-        } catch (err) {
-            try {
-                await moveHandleByCopy(sourceNode, targetHandle);
-            } catch (copyErr) {
-                console.warn('ファイルの移動に失敗:', copyErr);
-                alert('ファイルを別フォルダーへ移動できませんでした。');
-                return;
-            }
-        }
-    }
+    const sourceParentHandle = sourceNode.parentHandle || getFolderHandle(sourceParentPath);
+    const targetParentHandle = getFolderHandle(targetParentPath);
+    const needsFilesystemMove = !sameParent && Boolean(sourceNode.handle);
+    if (needsFilesystemMove && (!sourceParentHandle || !targetParentHandle)) return;
 
     const previousPositions = new Map(
         Array.from(fileTreeContainer.querySelectorAll('.tree-row[data-path]')).map(row => [
@@ -1297,8 +1409,14 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
     if (!sameParent) {
         const newPath = targetParentPath ? `${targetParentPath}/${sourceNode.name}` : sourceNode.name;
         updateNodePaths(sourceNode, sourcePath, newPath);
-        sourceNode.parentHandle = getFolderHandle(targetParentPath);
-        if (sourceNode.handle) await refreshNodeHandles(sourceNode);
+        sourceNode.parentHandle = targetParentHandle;
+    }
+
+    if (needsFilesystemMove) {
+        sourceNode.moveInProgress = true;
+        sourceNode.moveProgress = 0;
+        pendingFilesystemMoves++;
+        affectedNodes.forEach(node => pendingMoveNodes.add(node));
     }
 
     flatFiles = flattenTreeFiles(currentTreeItems);
@@ -1306,6 +1424,47 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
     renderFileTree(currentTreeItems);
     animateTreeReorder(previousPositions);
     scheduleSaveCurrentState();
+
+    if (!needsFilesystemMove) return;
+
+    void (async () => {
+        let filesystemMoveCompleted = false;
+        const progress = { totalBytes: 0, totalFiles: 0, completedBytes: 0, completedFiles: 0 };
+        try {
+            if (typeof sourceNode.handle.move === 'function') {
+                try {
+                    await sourceNode.handle.move(sourceNode.name, targetParentHandle);
+                    filesystemMoveCompleted = true;
+                } catch {
+                    await moveHandleByCopy(sourceNode, sourceParentHandle, targetParentHandle, progress);
+                    filesystemMoveCompleted = true;
+                }
+            } else {
+                await moveHandleByCopy(sourceNode, sourceParentHandle, targetParentHandle, progress);
+                filesystemMoveCompleted = true;
+            }
+
+            try {
+                await refreshNodeHandles(sourceNode);
+            } catch (err) {
+                console.warn('移動後のファイルハンドル更新に失敗:', err);
+            }
+            updateMoveProgress(sourceNode, { totalBytes: 1, totalFiles: 0, completedBytes: 1, completedFiles: 0 });
+            await yieldToUI();
+            clearTreeNodeMovePresentation(sourceNode);
+        } catch (err) {
+            console.warn('ファイルの移動に失敗:', err);
+            if (!filesystemMoveCompleted) {
+                rollbackOptimisticTreeMove(sourceNode, sourcePath, sourceChildren, sourceIndex, sourceParentHandle);
+                alert('ファイルを別フォルダーへ移動できませんでした。');
+            } else {
+                clearTreeNodeMovePresentation(sourceNode);
+            }
+        } finally {
+            affectedNodes.forEach(node => pendingMoveNodes.delete(node));
+            finishPendingFilesystemMove();
+        }
+    })();
 }
 
 function animateTreeReorder(previousPositions) {
@@ -1880,7 +2039,8 @@ function renderFileTree(items) {
         const rowDiv = document.createElement('div');
         rowDiv.className = `tree-row ${node.kind === 'directory' ? 'folder-row' : 'file-row'}`;
         rowDiv.dataset.path = node.path;
-        rowDiv.draggable = true;
+        rowDiv.draggable = !node.moveInProgress;
+        rowDiv.classList.toggle('move-pending', Boolean(node.moveInProgress));
 
         // 1. アイコン
         const iconDiv = document.createElement('div');
@@ -1913,7 +2073,15 @@ function renderFileTree(items) {
         // 2. ファイル/フォルダ名
         const labelDiv = document.createElement('div');
         labelDiv.className = 'row-label';
-        labelDiv.textContent = node.name;
+        const labelText = document.createElement('span');
+        labelText.className = 'row-label-text';
+        labelText.textContent = node.name;
+        labelDiv.appendChild(labelText);
+        if (node.moveInProgress) {
+            labelDiv.classList.add('is-moving');
+            labelDiv.dataset.progress = String(node.moveProgress || 0);
+            labelDiv.style.setProperty('--move-progress', `${node.moveProgress || 0}%`);
+        }
         rowDiv.appendChild(labelDiv);
 
         // 3. 右側要素 (ファイル / フォルダのチェックボックス)
