@@ -305,7 +305,7 @@ function showLoading(title = 'フォルダーを読み込んでいます') {
     loadingTitle.textContent = title;
     loadingStatus.textContent = 'ファイルをスキャン中...';
     loadingOverlay.classList.remove('error');
-    loadingOverlay.classList.add('active');
+    loadingOverlay.classList.remove('active');
     loadingScanCount = 0;
     loadingTotalEntries = 0;
     loadingActive = true;
@@ -325,7 +325,7 @@ function showLoadingError(message) {
     if (!loadingOverlay) return;
     loadingTitle.textContent = '読み込みに失敗しました';
     loadingStatus.textContent = message;
-    loadingOverlay.classList.add('error');
+    loadingOverlay.classList.add('active', 'error');
     // 一定時間後に自動的に閉じる
     setTimeout(() => {
         hideLoading();
