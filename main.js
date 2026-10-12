@@ -1205,26 +1205,31 @@ function isDescendantPath(path, possibleParent) {
 }
 
 function updateMoveProgress(node, progress) {
-    const totalWork = progress.totalBytes + progress.totalZeroByteFiles;
-    const completedWork = progress.completedBytes + progress.completedZeroByteFiles;
-    const percent = progress.finished
+    const transferRatio = progress.totalBytes > 0
+            ? progress.completedBytes / progress.totalBytes
+        : progress.totalZeroByteFiles > 0
+            ? progress.completedZeroByteFiles / progress.totalZeroByteFiles
+            : 0;
+        const percent = progress.contentCommitted
         ? 100
-        : totalWork === 0
-            ? 0
-            : Math.min(99, Math.floor(completedWork / totalWork * 100));
-    node.moveProgress = progress.finished ? 100 : Math.max(node.moveProgress || 0, percent);
+            : Math.min(95, Math.floor(transferRatio * 95));
+        node.moveProgress = progress.contentCommitted ? 100 : Math.max(node.moveProgress || 0, percent);
+    node.movePhase = progress.phase || node.movePhase || 'コピー';
 
     const label = treeNodeElements.get(node.path)?.querySelector('.row-label');
     if (!label) return;
     label.dataset.progress = String(node.moveProgress);
+    label.dataset.phase = node.movePhase;
     label.style.setProperty('--move-progress', `${node.moveProgress}%`);
 }
 
 async function copyFileHandle(sourceHandle, targetDirectoryHandle, name, progress, node, sourceFile = null) {
     const file = sourceFile || await sourceHandle.getFile();
-    const targetHandle = await targetDirectoryHandle.getFileHandle(name, { create: true });
+        const targetHandle = await targetDirectoryHandle.getFileHandle(name, { create: true });
     const writable = await targetHandle.createWritable();
     let reader = null;
+    progress.phase = 'コピー';
+    updateMoveProgress(node, progress);
 
     try {
         if (typeof file.stream === 'function') {
@@ -1246,8 +1251,11 @@ async function copyFileHandle(sourceHandle, targetDirectoryHandle, name, progres
             await writable.write(file);
             progress.completedBytes += file.size;
         }
+        progress.phase = '確定';
+        updateMoveProgress(node, progress);
         await writable.close();
         if (file.size === 0) progress.completedZeroByteFiles++;
+        progress.phase = 'コピー';
         updateMoveProgress(node, progress);
     } catch (err) {
         await writable.abort().catch(() => {});
@@ -1298,6 +1306,9 @@ async function copyDirectoryHandle(sourceHandle, targetDirectoryHandle, name, pr
         const destination = await getDirectoryByRelativePath(targetRoot, parentPath);
         await copyFileHandle(entry.handle, destination, fileName, progress, node, entry.file);
     }
+    progress.contentCommitted = true;
+    progress.phase = '移動元を削除中';
+    updateMoveProgress(node, progress);
 }
 
 async function moveHandleByCopy(sourceNode, sourceParentHandle, targetDirectoryHandle, progress) {
@@ -1309,6 +1320,9 @@ async function moveHandleByCopy(sourceNode, sourceParentHandle, targetDirectoryH
         progress.totalBytes = sourceFile.size;
         progress.totalZeroByteFiles = sourceFile.size === 0 ? 1 : 0;
         await copyFileHandle(sourceHandle, targetDirectoryHandle, sourceNode.name, progress, sourceNode, sourceFile);
+        progress.contentCommitted = true;
+        progress.phase = '移動元を削除中';
+        updateMoveProgress(sourceNode, progress);
         await sourceParentHandle.removeEntry(sourceNode.name);
     } else {
         await copyDirectoryHandle(sourceHandle, targetDirectoryHandle, sourceNode.name, progress, sourceNode);
@@ -1333,6 +1347,7 @@ async function refreshNodeHandles(node) {
 function clearTreeNodeMovePresentation(node) {
     node.moveInProgress = false;
     delete node.moveProgress;
+    delete node.movePhase;
     const nodeElement = treeNodeElements.get(node.path);
     const row = nodeElement?.firstElementChild;
     const label = row?.querySelector('.row-label');
@@ -1343,6 +1358,7 @@ function clearTreeNodeMovePresentation(node) {
     if (label) {
         label.classList.remove('is-moving');
         label.removeAttribute('data-progress');
+        label.removeAttribute('data-phase');
         label.style.removeProperty('--move-progress');
     }
 }
@@ -1358,6 +1374,7 @@ function rollbackOptimisticTreeMove(node, sourcePath, sourceChildren, sourceInde
     sourceChildren.splice(Math.min(sourceIndex, sourceChildren.length), 0, node);
     node.moveInProgress = false;
     delete node.moveProgress;
+    delete node.movePhase;
 
     flatFiles = flattenTreeFiles(currentTreeItems);
     updatePlaylistQueue();
@@ -1437,13 +1454,17 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
             totalZeroByteFiles: 0,
             completedBytes: 0,
             completedZeroByteFiles: 0,
-            finished: false
+            phase: 'コピー',
+            contentCommitted: false
         };
         try {
             if (typeof sourceNode.handle.move === 'function') {
                 try {
                     await sourceNode.handle.move(sourceNode.name, targetParentHandle);
                     filesystemMoveCompleted = true;
+                    progress.contentCommitted = true;
+                    progress.phase = '移動完了';
+                    updateMoveProgress(sourceNode, progress);
                 } catch {
                     await moveHandleByCopy(sourceNode, sourceParentHandle, targetParentHandle, progress);
                     filesystemMoveCompleted = true;
@@ -1458,8 +1479,6 @@ async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}
             } catch (err) {
                 console.warn('移動後のファイルハンドル更新に失敗:', err);
             }
-            progress.finished = true;
-            updateMoveProgress(sourceNode, progress);
             await yieldToUI();
             clearTreeNodeMovePresentation(sourceNode);
         } catch (err) {
@@ -2090,6 +2109,7 @@ function renderFileTree(items) {
         if (node.moveInProgress) {
             labelDiv.classList.add('is-moving');
             labelDiv.dataset.progress = String(node.moveProgress || 0);
+            labelDiv.dataset.phase = node.movePhase || 'コピー';
             labelDiv.style.setProperty('--move-progress', `${node.moveProgress || 0}%`);
         }
         rowDiv.appendChild(labelDiv);

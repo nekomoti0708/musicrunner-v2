@@ -1271,7 +1271,7 @@ input[type="range"]::-webkit-slider-thumb:active {
 .row-label.is-moving {
     position: relative;
     min-width: 0;
-    padding: 3px 36px 4px 5px;
+    padding: 3px 76px 4px 5px;
     margin: -3px 0 -4px -5px;
     border-radius: 4px;
     background: linear-gradient(
@@ -1282,7 +1282,7 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 .row-label.is-moving::after {
-    content: attr(data-progress) '%';
+    content: attr(data-phase) ' ' attr(data-progress) '%';
     position: absolute;
     top: 50%;
     right: 5px;
