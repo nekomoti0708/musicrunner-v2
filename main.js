@@ -226,6 +226,8 @@ let activeFolderName = null;  // 現在のフォルダ名（FSA / フォール�
 let currentTreeItems = [];    // ファイルツリー（ルート一括チェック用）
 let fileByPath = new Map();   // path → file node（クリック応答を高速化）
 let folderByPath = new Map(); // path → folder node
+let treeNodeElements = new Map();
+let treeNodeElementFactory = null;
 let saveStateRaf = 0;
 let stateSavePromise = Promise.resolve();
 let bulkRefreshRaf = 0;
@@ -294,6 +296,9 @@ let loadingScanCount = 0;
 let loadingScanRaf = 0;
 let loadingActive = false;
 let loadingTotalEntries = 0;
+let progressiveLoadToken = 0;
+let progressiveTreeLoading = false;
+let pendingProgressiveStateSave = false;
 
 function showLoading(title = 'フォルダーを読み込んでいます') {
     if (!loadingOverlay) return;
@@ -351,10 +356,20 @@ function updateLoadingStatus(message) {
     loadingStatus.textContent = message;
 }
 
-const TREE_SCAN_UI_YIELD_EVERY = 250;
+const TREE_SCAN_UI_YIELD_EVERY = 100;
 
 function yieldToUI() {
     return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function finishProgressiveTreeLoading(loadToken, savePendingState = true) {
+    if (loadToken !== progressiveLoadToken) return false;
+    progressiveTreeLoading = false;
+    if (pendingProgressiveStateSave) {
+        pendingProgressiveStateSave = false;
+        if (savePendingState) scheduleSaveCurrentState();
+    }
+    return true;
 }
 
 // --- 初期化処理 ---
@@ -566,6 +581,12 @@ function showScreen(screenId) {
 }
 
 function goBackToHome() {
+    if (progressiveTreeLoading) {
+        progressiveLoadToken++;
+        progressiveTreeLoading = false;
+        pendingProgressiveStateSave = false;
+        hideLoading();
+    }
     showScreen('home');
     renderRecentFolders();
     updateLastFolderButton();
@@ -782,22 +803,48 @@ async function handleOpenFilePicker() {
             }]
         });
 
+        const loadToken = ++progressiveLoadToken;
+        progressiveTreeLoading = true;
+        pendingProgressiveStateSave = false;
         isFolderLoaded = false;
-
+        directoryHandle = null;
+        activeFolderName = null;
+        currentState = { openFolders: {}, checkedFiles: {} };
+        rootItems = [];
         flatFiles = [];
+        playlistQueue = [];
+        pauseMedia();
+        showNoSelectionMessage();
+        showLoading('ファイルを準備しています');
+        showScreen('play');
+        await yieldToUI();
+
+        let processedEntries = 0;
         for (const handle of fileHandles) {
+            if (loadToken !== progressiveLoadToken) return;
+            processedEntries++;
+            updateLoadingCount();
             flatFiles.push({
                 kind: 'file',
                 name: handle.name,
                 path: handle.name,
                 handle: handle
             });
+            if (processedEntries % TREE_SCAN_UI_YIELD_EVERY === 0) {
+                playlistQueue = [...flatFiles];
+                updateLoadingStatus(`${processedEntries} / ${fileHandles.length} 個のファイルを処理中...`);
+                await yieldToUI();
+                if (loadToken !== progressiveLoadToken) return;
+            }
         }
         playlistQueue = [...flatFiles];
+        finishProgressiveTreeLoading(loadToken);
+        hideLoading();
 
         if (playlistQueue.length > 0) {
-            showScreen('play');
             playNode(playlistQueue[0]);
+        } else {
+            showNoSelectionMessage();
         }
     } catch (err) {
         console.log('User cancelled or error:', err);
@@ -827,6 +874,9 @@ async function openFolderPicker() {
 async function handleOpenLastDirectory() {
     // スマホ / フォールバック: キャッシュされたファイルがあれば再利用
     if (cachedFolderFiles && cachedFolderFiles.length > 0) {
+        const loadToken = ++progressiveLoadToken;
+        progressiveTreeLoading = true;
+        pendingProgressiveStateSave = false;
         isFolderLoaded = true;
 
         let folderName = 'Local Folder';
@@ -846,19 +896,24 @@ async function handleOpenLastDirectory() {
                 ? JSON.parse(savedState)
                 : { openFolders: {}, checkedFiles: {} };
 
+            rootItems = [];
             flatFiles = [];
-            const treeData = buildFallbackTree(cachedFolderFiles, folderName);
-            flatFiles = flattenTreeFiles(treeData);
-            updatePlaylistQueue();
-            renderFileTree(treeData);
+            playlistQueue = [];
+            pauseMedia();
+            showNoSelectionMessage();
+            renderFileTree(rootItems);
             showScreen('play');
+            await yieldToUI();
+            await buildFallbackTree(cachedFolderFiles, folderName, loadToken);
+            if (loadToken !== progressiveLoadToken) return;
+            finalizeProgressiveTree();
 
-            // 読み込み完了: オーバーレイを閉じる
+            finishProgressiveTreeLoading(loadToken);
             hideLoading();
-
-            // 自動再生せず、チェック状態に応じて復元 or 「選択されていません」表示
             restorePlayback();
         } catch (err) {
+            if (loadToken !== progressiveLoadToken) return;
+            finishProgressiveTreeLoading(loadToken, false);
             console.error('handleOpenLastDirectory cache restore error:', err);
             showLoadingError('フォルダーの復元中にエラーが発生しました');
         }
@@ -911,54 +966,61 @@ async function verifyPermission(fileHandle, readWrite) {
 
 // --- ディレクトリの読み込みとツリー構築 ---
 async function loadDirectory(dirHandle) {
+    const loadToken = ++progressiveLoadToken;
+    progressiveTreeLoading = true;
+    pendingProgressiveStateSave = false;
     directoryHandle = dirHandle;
     isFolderLoaded = true;
+    activeFolderName = dirHandle.name;
+    currentState = { openFolders: {}, checkedFiles: {} };
+    rootItems = [];
+    flatFiles = [];
+    playlistQueue = [];
 
-    // 読み込みオーバーレイを表示
+    pauseMedia();
+    showNoSelectionMessage();
     showLoading(`「${dirHandle.name}」を読み込んでいます`);
+    renderFileTree(rootItems);
+    showScreen('play');
 
     try {
+        await yieldToUI();
         // IndexedDB に保存して次回起動時に備える
         await setVal(LAST_DIR_KEY, dirHandle);
+        if (loadToken !== progressiveLoadToken) return;
         await saveRecentFolderHandle(dirHandle.name, dirHandle);
         saveLastFolderMeta(dirHandle.name, 'handle');
         cachedFolderFiles = null;
         renderRecentFolders();
         await updateLastFolderButton();
+        if (loadToken !== progressiveLoadToken) return;
 
-        // FSA で開いたフォルダーの状態は各階層の musics.json から復元する
-        currentState = { openFolders: {}, checkedFiles: {} };
+        await traverseDirectory(dirHandle, '', null, loadToken);
+        if (loadToken !== progressiveLoadToken) return;
+        finalizeProgressiveTree();
 
-        // フォルダのトラバース
-        rootItems = await traverseDirectory(dirHandle);
-        flatFiles = flattenTreeFiles(rootItems);
-
-        // プレイリストキューの作成 (チェックボックスの状態を考慮)
-        updatePlaylistQueue();
-
-        // UIレンダリング
-        renderFileTree(rootItems);
-
-        showScreen('play');
-
-        // 読み込み完了: オーバーレイを閉じる
+        finishProgressiveTreeLoading(loadToken);
         hideLoading();
-
-        // 自動再生せず、チェック状態に応じて復元 or 「選択されていません」表示
         restorePlayback();
     } catch (err) {
+        if (loadToken !== progressiveLoadToken) return;
+        finishProgressiveTreeLoading(loadToken, false);
         console.error('loadDirectory error:', err);
         showLoadingError('フォルダーの読み込み中にエラーが発生しました');
     }
 }
 
-// 再帰的にディレクトリをトラバース
-async function traverseDirectory(dirHandle, relativePath = '') {
-    const items = [];
+// 各階層の項目を先に表示し、子フォルダーを後から読み込む
+async function traverseDirectory(dirHandle, relativePath = '', parentNode = null, loadToken = progressiveLoadToken) {
+    if (loadToken !== progressiveLoadToken) return false;
+    const items = parentNode ? parentNode.children : rootItems;
+    const order = await readFolderOrder(dirHandle);
+    if (loadToken !== progressiveLoadToken) return false;
+    mergeFolderState(order);
     let entryCount = 0;
     for await (const entry of dirHandle.values()) {
+        if (loadToken !== progressiveLoadToken) return false;
         entryCount++;
-        // 進捗表示を更新（スロットリング付き）
         updateLoadingCount();
 
         const entryPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
@@ -972,32 +1034,55 @@ async function traverseDirectory(dirHandle, relativePath = '') {
                     parentHandle: dirHandle
                 };
                 items.push(fileNode);
+                flatFiles.push(fileNode);
+                appendProgressiveTreeNode(fileNode, parentNode);
             }
         } else if (entry.kind === 'directory') {
-            const subItems = await traverseDirectory(entry, entryPath);
-            // 再生可能ファイルを含むサブフォルダのみをツリーに追加する
-            if (subItems.length > 0) {
-                items.push({
-                    kind: 'directory',
-                    name: entry.name,
-                    path: entryPath,
-                    handle: entry,
-                    parentHandle: dirHandle,
-                    children: subItems
-                });
-            }
+            const folderNode = {
+                kind: 'directory',
+                name: entry.name,
+                path: entryPath,
+                handle: entry,
+                parentHandle: dirHandle,
+                children: []
+            };
+            items.push(folderNode);
+            appendProgressiveTreeNode(folderNode, parentNode);
         }
-        // 大量エントリ時の UI 停止を避けるため、頻度を下げてスキャンを高速化する
         if (entryCount % TREE_SCAN_UI_YIELD_EVERY === 0) {
+            updatePlaylistQueue();
             await yieldToUI();
+            if (loadToken !== progressiveLoadToken) return false;
         }
     }
-    updateLoadingStatus(`${loadingTotalEntries} 個のエントリを確認中...`);
-    const order = await readFolderOrder(dirHandle);
-    mergeFolderState(order);
-    const sortedItems = sortTreeItems(items, order);
-    if (!order) await writeFolderOrder(dirHandle, sortedItems, relativePath || null);
-    return sortedItems;
+
+    sortTreeItems(items, order);
+    reorderProgressiveTree(items, parentNode);
+    if (parentNode) {
+        refreshProgressiveFolderCheckbox(parentNode);
+    } else {
+        syncProgressiveRootBulkRow();
+    }
+    updatePlaylistQueue();
+
+    for (const node of [...items]) {
+        if (node.kind !== 'directory') continue;
+        const hasMedia = await traverseDirectory(node.handle, node.path, node, loadToken);
+        if (loadToken !== progressiveLoadToken) return false;
+        if (!hasMedia) {
+            items.splice(items.indexOf(node), 1);
+            treeNodeElements.get(node.path)?.remove();
+            treeNodeElements.delete(node.path);
+            folderByPath.delete(node.path);
+        }
+    }
+
+    if (loadToken !== progressiveLoadToken) return false;
+    if (!order && items.length > 0) {
+        await writeFolderOrder(dirHandle, items, relativePath || null);
+    }
+    updateLoadingStatus(`${loadingTotalEntries} 個のエントリを読み込み中...`);
+    return items.some(item => item.kind === 'file' || item.children?.length > 0);
 }
 
 function mergeFolderState(order) {
@@ -1121,6 +1206,10 @@ async function saveFolderMetadata() {
 }
 
 function scheduleSaveCurrentState() {
+    if (progressiveTreeLoading) {
+        pendingProgressiveStateSave = true;
+        return;
+    }
     if (saveStateRaf) cancelAnimationFrame(saveStateRaf);
     saveStateRaf = requestAnimationFrame(() => {
         saveStateRaf = 0;
@@ -1854,11 +1943,8 @@ function createRootBulkRow(items) {
 function renderFileTree(items) {
     currentTreeItems = items;
     rebuildTreeIndex(items);
+    treeNodeElements = new Map();
     fileTreeContainer.innerHTML = '';
-    if (items.length === 0) {
-        fileTreeContainer.innerHTML = '<div class="empty-tree-message">再生可能なファイルが見つかりません。</div>';
-        return;
-    }
 
     const fragment = document.createDocumentFragment();
 
@@ -1964,7 +2050,14 @@ function renderFileTree(items) {
             nodeDiv.appendChild(childrenDiv);
         }
 
+        treeNodeElements.set(node.path, nodeDiv);
         return nodeDiv;
+    }
+
+    treeNodeElementFactory = createNodeElement;
+    if (items.length === 0) {
+        fileTreeContainer.innerHTML = '<div class="empty-tree-message">再生可能なファイルが見つかりません。</div>';
+        return;
     }
 
     items.forEach(item => {
@@ -1973,6 +2066,84 @@ function renderFileTree(items) {
     fileTreeContainer.appendChild(fragment);
 
     // 現在再生中の行をハイライト
+    highlightPlayingRow();
+    setTimeout(updateStickyFolderHeader, 0);
+}
+
+function appendProgressiveTreeNode(node, parentNode = null) {
+    const parentElement = parentNode ? treeNodeElements.get(parentNode.path) : null;
+    const container = parentNode
+        ? Array.from(parentElement?.children || []).find(child => child.classList.contains('tree-children'))
+        : fileTreeContainer;
+    if (!container || !treeNodeElementFactory) return null;
+
+    if (!parentNode && fileTreeContainer.firstElementChild?.classList.contains('empty-tree-message')) {
+        fileTreeContainer.firstElementChild.remove();
+    }
+
+    const nodeElement = treeNodeElementFactory(node);
+    container.appendChild(nodeElement);
+    if (node.kind === 'directory') {
+        folderByPath.set(node.path, node);
+    } else {
+        fileByPath.set(node.path, node);
+    }
+    return nodeElement;
+}
+
+function refreshProgressiveFolderCheckbox(node) {
+    const row = treeNodeElements.get(node.path)?.firstElementChild;
+    if (!row) return;
+
+    row.querySelector('.checkbox-container--folder')?.remove();
+    const directFiles = getDirectFileChildren(node);
+    if (directFiles.length === 0) return;
+
+    const bulkState = getBulkCheckState(directFiles);
+    const { cbContainer } = createCheckboxControl({
+        variant: 'folder',
+        className: 'checkbox-input folder-bulk-checkbox',
+        dataset: { folderPath: node.path },
+        checked: bulkState.checked,
+        indeterminate: bulkState.indeterminate,
+        onToggle: checked => setFilesChecked(getDirectFileChildren(node), checked)
+    });
+    row.appendChild(cbContainer);
+}
+
+function syncProgressiveRootBulkRow() {
+    fileTreeContainer.querySelector('.root-folder-row[data-root-bulk]')?.remove();
+    const rootRow = createRootBulkRow(rootItems);
+    if (rootRow) {
+        const firstNode = Array.from(fileTreeContainer.children).find(child => child.classList.contains('tree-node'));
+        fileTreeContainer.insertBefore(rootRow, firstNode || fileTreeContainer.firstChild);
+    }
+}
+
+function reorderProgressiveTree(items, parentNode = null) {
+    const parentElement = parentNode ? treeNodeElements.get(parentNode.path) : null;
+    const container = parentNode
+        ? Array.from(parentElement?.children || []).find(child => child.classList.contains('tree-children'))
+        : fileTreeContainer;
+    if (!container) return;
+
+    for (const node of items) {
+        const nodeElement = treeNodeElements.get(node.path);
+        if (!nodeElement) continue;
+        container.appendChild(nodeElement);
+        if (node.kind === 'directory') reorderProgressiveTree(node.children || [], node);
+    }
+}
+
+function finalizeProgressiveTree() {
+    if (rootItems.length === 0) {
+        fileTreeContainer.innerHTML = '<div class="empty-tree-message">再生可能なファイルが見つかりません。</div>';
+    } else {
+        syncProgressiveRootBulkRow();
+    }
+    rebuildTreeIndex(rootItems);
+    flatFiles = flattenTreeFiles(rootItems);
+    updatePlaylistQueue();
     highlightPlayingRow();
     setTimeout(updateStickyFolderHeader, 0);
 }
@@ -2219,24 +2390,48 @@ function updateMediaSession(node) {
 }
 
 // --- フォールバック処理 (File System Access API 未サポートブラウザ用) ---
-function handleFallbackFiles(e) {
+async function handleFallbackFiles(e) {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
+    const loadToken = ++progressiveLoadToken;
+    progressiveTreeLoading = true;
+    pendingProgressiveStateSave = false;
     isFolderLoaded = false;
+    directoryHandle = null;
+    activeFolderName = null;
+    currentState = { openFolders: {}, checkedFiles: {} };
+    rootItems = [];
+    flatFiles = [];
+    playlistQueue = [];
+    pauseMedia();
+    showNoSelectionMessage();
+    showLoading('ファイルを準備しています');
+    showScreen('play');
 
-    flatFiles = files.filter(f => isMediaFile(f.name)).map(f => ({
-        kind: 'file',
-        name: f.name,
-        path: f.name,
-        file: f
-    }));
+    await yieldToUI();
+    for (let index = 0; index < files.length; index++) {
+        if (loadToken !== progressiveLoadToken) return;
+        const file = files[index];
+        updateLoadingCount();
+        if (isMediaFile(file.name)) {
+            flatFiles.push({ kind: 'file', name: file.name, path: file.name, file });
+        }
+        if ((index + 1) % TREE_SCAN_UI_YIELD_EVERY === 0) {
+            playlistQueue = [...flatFiles];
+            updateLoadingStatus(`${index + 1} / ${files.length} 個のファイルを処理中...`);
+            await yieldToUI();
+        }
+    }
+    if (loadToken !== progressiveLoadToken) return;
 
     playlistQueue = [...flatFiles];
-
+    finishProgressiveTreeLoading(loadToken);
+    hideLoading();
     if (playlistQueue.length > 0) {
-        showScreen('play');
         playNode(playlistQueue[0]);
+    } else {
+        showNoSelectionMessage();
     }
 }
 
@@ -2244,6 +2439,9 @@ async function handleFallbackFolder(e) {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
+    const loadToken = ++progressiveLoadToken;
+    progressiveTreeLoading = true;
+    pendingProgressiveStateSave = false;
     isFolderLoaded = true;
 
     // Determine top-level folder name
@@ -2272,93 +2470,105 @@ async function handleFallbackFolder(e) {
         saveLastFolderMeta(folderName, 'fallback');
         updateLastFolderButton();
 
-        // Build tree structure and render UI
-        const treeData = buildFallbackTree(files, folderName);
-        flatFiles = flattenTreeFiles(treeData);
-
-        // Populate playlist from the cached files
-        updatePlaylistQueue();
-
-        renderFileTree(treeData);
-
+        rootItems = [];
+        flatFiles = [];
+        playlistQueue = [];
+        pauseMedia();
+        showNoSelectionMessage();
+        renderFileTree(rootItems);
         showScreen('play');
+        await yieldToUI();
+        await buildFallbackTree(files, folderName, loadToken);
+        if (loadToken !== progressiveLoadToken) return;
+        finalizeProgressiveTree();
 
-        // 読み込み完了: オーバーレイを閉じる
+        finishProgressiveTreeLoading(loadToken);
         hideLoading();
-
-        // 自動再生せず、チェック状態に応じて復元 or 「選択されていません」表示
         restorePlayback();
     } catch (err) {
+        if (loadToken !== progressiveLoadToken) return;
+        finishProgressiveTreeLoading(loadToken, false);
         console.error('handleFallbackFolder error:', err);
         showLoadingError('フォルダーの読み込み中にエラーが発生しました');
     }
 }
 
-// webkitRelativePath からツリー構造を作成する
-function buildFallbackTree(files, rootName) {
-    const rootNode = {
-        name: rootName,
-        kind: 'directory',
-        path: rootName,
-        children: []
-    };
+// webkitRelativePath からツリーを構築しながら、一定件数ごとに画面へ反映する
+async function buildFallbackTree(files, rootName, loadToken) {
+    const foldersByPath = new Map();
+    let processedEntries = 0;
+    let processedFiles = 0;
 
-    const mediaFiles = files.filter(f => isMediaFile(f.name));
+    for (const file of files) {
+        if (loadToken !== progressiveLoadToken) return;
+        processedEntries++;
+        updateLoadingCount();
+        if (!isMediaFile(file.name)) {
+            if (processedEntries % TREE_SCAN_UI_YIELD_EVERY === 0) {
+                await yieldToUI();
+            }
+            continue;
+        }
 
-    mediaFiles.forEach(file => {
-        const pathParts = file.webkitRelativePath.split('/');
-        // 最初の要素はルートフォルダ名
-        pathParts.shift();
+        const relativePath = file.webkitRelativePath || `${rootName}/${file.name}`;
+        const pathParts = relativePath.split('/');
+        if (pathParts[0] === rootName) pathParts.shift();
 
-        let currentLevel = rootNode.children;
+        let currentLevel = rootItems;
+        let parentNode = null;
         let currentPath = rootName;
-
-        pathParts.forEach((part, index) => {
-            currentPath += '/' + part;
-            const isLast = index === pathParts.length - 1;
-
-            if (isLast) {
-                const fileNode = {
-                    kind: 'file',
-                    name: part,
-                    path: currentPath,
-                    file: file
-                };
-                currentLevel.push(fileNode);
-            } else {
-                let folder = currentLevel.find(item => item.kind === 'directory' && item.name === part);
-                if (!folder) {
-                    folder = {
-                        kind: 'directory',
-                        name: part,
-                        path: currentPath,
-                        children: []
-                    };
-                    currentLevel.push(folder);
-                }
-                currentLevel = folder.children;
+        for (const part of pathParts.slice(0, -1)) {
+            currentPath += `/${part}`;
+            let folder = foldersByPath.get(currentPath);
+            if (!folder) {
+                folder = { kind: 'directory', name: part, path: currentPath, children: [] };
+                foldersByPath.set(currentPath, folder);
+                currentLevel.push(folder);
+                appendProgressiveTreeNode(folder, parentNode);
             }
-        });
-    });
+            currentLevel = folder.children;
+            parentNode = folder;
+        }
 
-    // 空のフォルダノードを除去しソート
-    function cleanAndSort(nodeList) {
-        const filtered = nodeList.filter(item => {
-            if (item.kind === 'directory') {
-                cleanAndSort(item.children);
-                return item.children.length > 0;
-            }
-            return true;
-        });
-        // フォルダー → ファイルの順で、それぞれa-z
-        filtered.sort((a, b) => {
-            if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
-            return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
-        });
-        return filtered;
+        const name = pathParts[pathParts.length - 1] || file.name;
+        const filePath = `${currentPath}/${name}`;
+        const fileNode = { kind: 'file', name, path: filePath, file };
+        currentLevel.push(fileNode);
+        flatFiles.push(fileNode);
+        appendProgressiveTreeNode(fileNode, parentNode);
+
+        processedFiles++;
+        if (processedEntries % TREE_SCAN_UI_YIELD_EVERY === 0) {
+            updatePlaylistQueue();
+            updateLoadingStatus(`${processedEntries} / ${files.length} 個のエントリを処理中...`);
+            await yieldToUI();
+            if (loadToken !== progressiveLoadToken) return;
+        }
+    }
+    if (loadToken !== progressiveLoadToken) return;
+
+    function sortTree(items) {
+        sortTreeItems(items, null);
+        for (const item of items) {
+            if (item.kind === 'directory') sortTree(item.children);
+        }
     }
 
-    return cleanAndSort(rootNode.children);
+    function refreshFolderCheckboxes(items) {
+        for (const item of items) {
+            if (item.kind !== 'directory') continue;
+            refreshProgressiveFolderCheckbox(item);
+            refreshFolderCheckboxes(item.children);
+        }
+    }
+
+    sortTree(rootItems);
+    reorderProgressiveTree(rootItems);
+    refreshFolderCheckboxes(rootItems);
+    syncProgressiveRootBulkRow();
+    updatePlaylistQueue();
+    updateLoadingStatus(`${processedFiles} 個のメディアを追加しました`);
+    return rootItems;
 }
 
 // --- スワイプジェスチャー制御 ---
