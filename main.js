@@ -219,6 +219,7 @@ let rootItems = [];           // ツリー構造データ
 let flatFiles = [];           // 再生可能なファイルのフラット配列
 let playlistQueue = [];       // チェックが入っているファイルの配列
 let currentPlayingFile = null;// 現在再生中のファイル情報 (node)
+let playbackSpeed = 1;
 let loopMode = 'playlist';    // 'playlist' (チェック順次リピート) or 'single' (単一曲ループ)
 let isFolderLoaded = false;
 let activeFolderName = null;  // 現在のフォルダ名（FSA / フォールバック共通）
@@ -2008,6 +2009,7 @@ async function playNode(node, { autoPlay = true, seekTime = null } = {}) {
 
         const objectURL = URL.createObjectURL(file);
         mainVideo.src = objectURL;
+        mainVideo.playbackRate = playbackSpeed;
 
         // シーク位置の復元（loadedmetadata 待ち）
         if (seekTime !== null && seekTime > 0) {
@@ -2869,6 +2871,18 @@ function applyEffectPreset(presetId) {
 }
 
 const AUDIO_SETTINGS_KEY = 'musicrunner_audio_settings';
+const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+function setPlaybackSpeed(speed) {
+    const selectedSpeed = PLAYBACK_SPEEDS.includes(Number(speed)) ? Number(speed) : 1;
+    playbackSpeed = selectedSpeed;
+    mainVideo.playbackRate = selectedSpeed;
+
+    const slider = document.getElementById('slider-playback-speed');
+    const value = document.getElementById('val-playback-speed');
+    if (slider) slider.value = String(selectedSpeed);
+    if (value) value.textContent = `${selectedSpeed.toFixed(2)}x`;
+}
 
 function saveAudioSettings() {
     const presetSelect = document.getElementById('effect-preset');
@@ -2949,6 +2963,10 @@ function initEffectsUI() {
             updateAudioEffects();
             saveAudioSettings();
         });
+    });
+
+    document.getElementById('slider-playback-speed').addEventListener('input', (event) => {
+        setPlaybackSpeed(event.target.value);
     });
 
     presetSelect.addEventListener('change', (e) => {
