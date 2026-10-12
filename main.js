@@ -1230,13 +1230,14 @@ async function refreshNodeHandles(node) {
     }
 }
 
-async function moveTreeNode(sourcePath, targetPath, { insertAfter = false } = {}) {
+async function moveTreeNode(sourcePath, targetPath, { position = 'before' } = {}) {
     const sourceNode = fileByPath.get(sourcePath) || folderByPath.get(sourcePath);
     const targetNode = fileByPath.get(targetPath) || folderByPath.get(targetPath);
     if (!sourceNode || !targetNode || sourceNode === targetNode) return;
+    if (position === 'inside' && targetNode.kind !== 'directory') return;
 
     const sourceParentPath = getParentFolderPath(sourcePath);
-    const targetParentPath = targetNode.kind === 'directory'
+    const targetParentPath = targetNode.kind === 'directory' && position === 'inside'
         ? targetNode.path
         : getParentFolderPath(targetPath);
     if (sourceNode.kind === 'directory' && isDescendantPath(targetParentPath, sourcePath)) return;
@@ -1248,9 +1249,9 @@ async function moveTreeNode(sourcePath, targetPath, { insertAfter = false } = {}
     const sourceIndex = sourceChildren.indexOf(sourceNode);
     if (sourceIndex < 0) return;
     const sameParent = sourceParentPath === targetParentPath;
-    let targetIndex = targetNode.kind === 'directory'
+    let targetIndex = position === 'inside'
         ? targetChildren.length
-        : targetChildren.indexOf(targetNode) + (insertAfter ? 1 : 0);
+        : targetChildren.indexOf(targetNode) + (position === 'after' ? 1 : 0);
     if (targetIndex < 0) targetIndex = targetChildren.length;
 
     if (!sameParent && sourceNode.handle) {
@@ -1469,7 +1470,7 @@ function initFileTreeInteraction() {
         if (state.active && targetRow && targetRow.dataset.path !== state.row.dataset.path) {
             try {
                 await moveTreeNode(state.row.dataset.path, targetRow.dataset.path, {
-                    insertAfter: shouldInsertAfter(targetRow, touch.clientY)
+                    position: getTreeDropPosition(targetRow, touch.clientY)
                 });
             } catch (err) {
                 console.error('Touch drag move failed:', err);
@@ -1507,7 +1508,7 @@ function initFileTreeInteraction() {
         const row = e.target.closest('.tree-row');
         if (row && draggedTreePath && !row.dataset.rootBulk && row.dataset.path !== draggedTreePath) {
             await moveTreeNode(draggedTreePath, row.dataset.path, {
-                insertAfter: shouldInsertAfter(row, e.clientY)
+                position: getTreeDropPosition(row, e.clientY)
             });
         }
         clearTreeDragState();
@@ -1604,8 +1605,12 @@ function updateTouchDragTarget(row, clientY) {
     dragOverRow = row;
     dragOverRow.classList.remove('drag-over-before', 'drag-over-after');
     dragOverRow.classList.add('drag-over');
-    if (row.classList.contains('folder-row')) return;
-    dragOverRow.classList.add(shouldInsertAfter(row, clientY) ? 'drag-over-after' : 'drag-over-before');
+    const position = getTreeDropPosition(row, clientY);
+    if (position === 'before') {
+        dragOverRow.classList.add('drag-over-before');
+    } else if (position === 'after') {
+        dragOverRow.classList.add('drag-over-after');
+    }
 }
 
 function cancelTouchTreeDrag() {
@@ -1651,10 +1656,15 @@ function stopTouchAutoScroll() {
     document.getElementById('tree-panel-body')?.classList.remove('drag-scroll-locked');
 }
 
-function shouldInsertAfter(row, clientY) {
-    if (row.classList.contains('folder-row')) return false;
+function getTreeDropPosition(row, clientY) {
     const rect = row.getBoundingClientRect();
-    return clientY > rect.top + rect.height / 2;
+    const ratio = (clientY - rect.top) / rect.height;
+    if (row.classList.contains('folder-row')) {
+        if (ratio < 0.25) return 'before';
+        if (ratio > 0.75) return 'after';
+        return 'inside';
+    }
+    return ratio < 0.5 ? 'before' : 'after';
 }
 
 // --- チェックボックス一括操作（直下のファイルのみ） ---
